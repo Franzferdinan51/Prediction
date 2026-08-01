@@ -24,6 +24,7 @@ const cliAuthSessions = new Map();
 const cliCommands = {
   minimax: process.env.MINIMAX_CLI_COMMAND || "mmx",
   grok: process.env.GROK_BUILD_COMMAND || "grok",
+  openai: process.env.OPENAI_CODEX_COMMAND || "codex",
 };
 
 const providers = {
@@ -487,38 +488,142 @@ async function commandStatus(command) {
 }
 
 function cliAuthOutput(value) {
-  return String(value || "").replace(/(sk-|xai-)[A-Za-z0-9_-]+/g, "$1[redacted]").slice(-6000);
+  return String(value || "")
+    .replace(/(sk-|xai-)[A-Za-z0-9_-]+/g, "$1[redacted]")
+    .slice(-6000);
 }
 
 async function cliAuthStatus(provider) {
   const command = cliCommands[provider];
   const installed = await commandStatus(command);
-  if (!installed.installed) return { provider, ...installed, authenticated: false };
+  if (!installed.installed)
+    return { provider, ...installed, authenticated: false };
   if (provider === "minimax") {
     try {
-      const result = await execFileAsync(command, ["auth", "status"], { timeout: 5000, maxBuffer: 64 * 1024 });
+      const result = await execFileAsync(command, ["auth", "status"], {
+        timeout: 5000,
+        maxBuffer: 64 * 1024,
+      });
       const status = JSON.parse(result.stdout);
-      return { provider, ...installed, authenticated: true, detail: { method: status.method || "configured", source: status.source || "local CLI config" } };
+      return {
+        provider,
+        ...installed,
+        authenticated: true,
+        detail: {
+          method: status.method || "configured",
+          source: status.source || "local CLI config",
+        },
+      };
     } catch (error) {
-      return { provider, ...installed, authenticated: false, detail: cliAuthOutput(error.stderr) };
+      return {
+        provider,
+        ...installed,
+        authenticated: false,
+        detail: cliAuthOutput(error.stderr),
+      };
     }
   }
-  const authenticated = await access(`${homedir()}/.grok/auth.json`).then(() => true).catch(() => false);
-  return { provider, ...installed, authenticated, detail: authenticated ? "Grok Build has a local OAuth session." : "No Grok Build OAuth session found." };
+  if (provider === "openai") {
+    try {
+      const result = await execFileAsync(command, ["login", "status"], {
+        timeout: 5000,
+        maxBuffer: 64 * 1024,
+      });
+      return {
+        provider,
+        ...installed,
+        authenticated: true,
+        detail:
+          cliAuthOutput(result.stdout).trim() ||
+          "Codex CLI has a local ChatGPT session.",
+      };
+    } catch (error) {
+      return {
+        provider,
+        ...installed,
+        authenticated: false,
+        detail: cliAuthOutput(error.stderr) || "No Codex CLI login found.",
+      };
+    }
+  }
+  const authenticated = await access(`${homedir()}/.grok/auth.json`)
+    .then(() => true)
+    .catch(() => false);
+  return {
+    provider,
+    ...installed,
+    authenticated,
+    detail: authenticated
+      ? "Grok Build has a local OAuth session."
+      : "No Grok Build OAuth session found.",
+  };
+}
+
+async function cliModels(provider) {
+  if (!Object.hasOwn(cliCommands, provider))
+    throw Object.assign(new Error("Unknown CLI provider."), { status: 404 });
+  if (provider === "minimax") return ["MiniMax-M3", "MiniMax-M2.7"];
+  if (provider === "openai") return ["codex-default"];
+  try {
+    const result = await execFileAsync(cliCommands.grok, ["models"], {
+      timeout: 10000,
+      maxBuffer: 256 * 1024,
+    });
+    return result.stdout
+      .split("\n")
+      .map((line) =>
+        line
+          .match(/^\s*(?:\*\s*)?-\s+(.+?)\s*(?:\(default\))?\s*$/)?.[1]
+          ?.trim(),
+      )
+      .filter(Boolean);
+  } catch (error) {
+    throw Object.assign(
+      new Error(
+        cliAuthOutput(error.stderr) || "Could not load Grok Build models.",
+      ),
+      { status: 502 },
+    );
+  }
 }
 
 function startCliOAuth(provider, flow = "browser") {
-  if (!Object.hasOwn(cliCommands, provider)) throw Object.assign(new Error("Unknown CLI OAuth provider."), { status: 404 });
+  if (!Object.hasOwn(cliCommands, provider))
+    throw Object.assign(new Error("Unknown CLI OAuth provider."), {
+      status: 404,
+    });
   const existing = cliAuthSessions.get(provider);
   if (existing?.state === "running") return existing;
-  const args = provider === "minimax" ? ["auth", "login", "--recommend", "--region=global"] : ["login", flow === "device" ? "--device-auth" : "--oauth"];
-  const session = { provider, state: "running", startedAt: new Date().toISOString(), output: "Starting local CLI OAuth…" };
-  const child = spawn(cliCommands[provider], args, { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
-  const append = (chunk) => { session.output = cliAuthOutput(`${session.output}\n${chunk.toString()}`); };
+  const args =
+    provider === "minimax"
+      ? ["auth", "login", "--recommend", "--region=global"]
+      : provider === "openai"
+        ? ["login", ...(flow === "device" ? ["--device-auth"] : [])]
+        : ["login", flow === "device" ? "--device-auth" : "--oauth"];
+  const session = {
+    provider,
+    state: "running",
+    startedAt: new Date().toISOString(),
+    output: "Starting local CLI OAuth…",
+  };
+  const child = spawn(cliCommands[provider], args, {
+    cwd: ROOT,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const append = (chunk) => {
+    session.output = cliAuthOutput(`${session.output}\n${chunk.toString()}`);
+  };
   child.stdout.on("data", append);
   child.stderr.on("data", append);
-  child.on("error", (error) => { session.state = "error"; session.output = cliAuthOutput(`${session.output}\n${error.message}`); });
-  child.on("close", (code) => { session.state = code === 0 ? "complete" : "error"; session.finishedAt = new Date().toISOString(); session.exitCode = code; });
+  child.on("error", (error) => {
+    session.state = "error";
+    session.output = cliAuthOutput(`${session.output}\n${error.message}`);
+  });
+  child.on("close", (code) => {
+    session.state = code === 0 ? "complete" : "error";
+    session.finishedAt = new Date().toISOString();
+    session.exitCode = code;
+  });
   cliAuthSessions.set(provider, session);
   return session;
 }
@@ -528,21 +633,66 @@ function cliForecastPrompt(brief) {
     "You are a calibrated superforecaster. Return XML only.",
     `Question: ${String(brief.question || "").slice(0, 6000)}`,
     `Deadline: ${String(brief.deadline || "not specified").slice(0, 120)}`,
-    brief.resolutionCriteria ? `Resolution criteria: ${String(brief.resolutionCriteria).slice(0, 2000)}` : "",
+    brief.resolutionCriteria
+      ? `Resolution criteria: ${String(brief.resolutionCriteria).slice(0, 2000)}`
+      : "",
     brief.context ? `Context: ${String(brief.context).slice(0, 4000)}` : "",
     "Include <probability>0-100</probability>, <confidence>High|Medium|Low</confidence>, <reasoning>3-6 nuanced sentences</reasoning>, <drivers>semicolon-separated drivers</drivers>, <counter_signals>semicolon-separated counter-signals</counter_signals>, <update_triggers>semicolon-separated update triggers</update_triggers>, and <assumptions>semicolon-separated assumptions</assumptions>.",
-  ].filter(Boolean).join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 async function runCliForecast(input) {
   const provider = input.provider;
-  if (provider !== "minimax" && provider !== "grok") throw Object.assign(new Error("CLI forecasts support MiniMax and Grok only."), { status: 400 });
-  if (agentInFlight.has(`cli-${provider}`)) throw Object.assign(new Error(`${provider} CLI forecast is already running.`), { status: 429 });
+  if (provider !== "minimax" && provider !== "grok" && provider !== "openai")
+    throw Object.assign(
+      new Error("CLI forecasts support MiniMax, Grok, and OpenAI Codex only."),
+      { status: 400 },
+    );
+  if (agentInFlight.has(`cli-${provider}`))
+    throw Object.assign(
+      new Error(`${provider} CLI forecast is already running.`),
+      { status: 429 },
+    );
   agentInFlight.add(`cli-${provider}`);
   try {
     const prompt = cliForecastPrompt(input.brief || {});
-    const args = provider === "minimax" ? ["text", "chat", "--message", prompt, "--output", "json"] : ["-p", prompt];
-    const result = await execFileAsync(cliCommands[provider], args, { timeout: 120000, maxBuffer: 2 * 1024 * 1024 });
+    const model = String(input.model || "")
+      .trim()
+      .slice(0, 160);
+    const args =
+      provider === "minimax"
+        ? [
+            "text",
+            "chat",
+            ...(model ? ["--model", model] : []),
+            "--message",
+            prompt,
+            "--output",
+            "json",
+          ]
+        : provider === "grok"
+          ? [
+              "-p",
+              prompt,
+              "--output-format",
+              "plain",
+              ...(model ? ["--model", model] : []),
+            ]
+          : [
+              "exec",
+              "--ephemeral",
+              "--sandbox",
+              "read-only",
+              "--skip-git-repo-check",
+              ...(model && model !== "codex-default" ? ["--model", model] : []),
+              prompt,
+            ];
+    const result = await execFileAsync(cliCommands[provider], args, {
+      timeout: 120000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
     return { provider, output: result.stdout.trim() };
   } finally {
     agentInFlight.delete(`cli-${provider}`);
@@ -613,17 +763,30 @@ const server = http.createServer(async (req, res) => {
         hermes: await commandStatus(process.env.HERMES_COMMAND || "hermes"),
         minimaxCli: await cliAuthStatus("minimax"),
         grokBuild: await cliAuthStatus("grok"),
+        openaiCodex: await cliAuthStatus("openai"),
       });
-    const authMatch = path.match(/^\/api\/cli-auth\/(minimax|grok)\/(login|status)$/);
-    if (authMatch && req.method === "GET" && authMatch[2] === "status") return json(res, 200, { ...(await cliAuthStatus(authMatch[1])), session: cliAuthSessions.get(authMatch[1]) || null });
+    const authMatch = path.match(
+      /^\/api\/cli-auth\/(minimax|grok|openai)\/(login|status|models)$/,
+    );
+    if (authMatch && req.method === "GET" && authMatch[2] === "status")
+      return json(res, 200, {
+        ...(await cliAuthStatus(authMatch[1])),
+        session: cliAuthSessions.get(authMatch[1]) || null,
+      });
+    if (authMatch && req.method === "GET" && authMatch[2] === "models")
+      return json(res, 200, {
+        provider: authMatch[1],
+        models: await cliModels(authMatch[1]),
+      });
     if (req.method !== "POST") return json(res, 404, { error: "Not found" });
     const input = await body(req);
-    if (authMatch && authMatch[2] === "login") return json(res, 202, startCliOAuth(authMatch[1], input.flow));
+    if (authMatch && authMatch[2] === "login")
+      return json(res, 202, startCliOAuth(authMatch[1], input.flow));
     if (path === "/api/forecast")
       return json(res, 200, await runForecast(input));
-    if (path === "/api/cli-forecast") return json(res, 200, await runCliForecast(input));
-    if (path === "/api/search")
-      return json(res, 200, await searchWeb(input));
+    if (path === "/api/cli-forecast")
+      return json(res, 200, await runCliForecast(input));
+    if (path === "/api/search") return json(res, 200, await searchWeb(input));
     if (path === "/api/research")
       return json(
         res,

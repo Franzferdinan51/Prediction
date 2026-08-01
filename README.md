@@ -120,13 +120,13 @@ cp .env.example .env.local
 | `LM_API_TOKEN`         | empty                      | Optional LM Studio API token for the local MoA adapter when LM Studio token protection is enabled. |
 | `MINIMAX_CLI_COMMAND`  | `mmx`                      | Path to the official MiniMax CLI used for local OAuth-backed forecasts.                            |
 | `GROK_BUILD_COMMAND`   | `grok`                     | Path to the official Grok Build CLI used for local OAuth-backed forecasts.                         |
+| `OPENAI_CODEX_COMMAND` | `codex`                    | Path to the Codex CLI used for local ChatGPT OAuth-backed forecasts.                               |
 
 ### Browser environment variables
 
-| Variable                | Default                 | Purpose                                                          |
-| ----------------------- | ----------------------- | ---------------------------------------------------------------- |
-| `VITE_SIGNAL_API_URL`   | `http://127.0.0.1:8787` | API base URL used by the browser.                                |
-| `VITE_OPENAI_OAUTH_URL` | empty                   | Optional OAuth start/callback URL supplied by a separate server. |
+| Variable              | Default                 | Purpose                           |
+| --------------------- | ----------------------- | --------------------------------- |
+| `VITE_SIGNAL_API_URL` | `http://127.0.0.1:8787` | API base URL used by the browser. |
 
 Vite exposes `VITE_*` values to the browser. Do not put private API keys in a `VITE_*` variable.
 
@@ -140,8 +140,26 @@ Default configurations:
 | ---------- | --------------------------- | -------------- | ------------------------------------------ |
 | LM Studio  | `http://localhost:1234/v1`  | `local-model`  | Usually none; auto-connect uses `/models`. |
 | MiniMax    | `https://api.minimax.io/v1` | `MiniMax-M2.7` | API key or official MiniMax CLI OAuth.     |
-| Grok / xAI | `https://api.x.ai/v1`       | `grok-3-mini`  | API key or official Grok Build CLI OAuth.   |
-| OpenAI     | `https://api.openai.com/v1` | `gpt-4o-mini`  | API key or configured OAuth redirect.      |
+| Grok / xAI | `https://api.x.ai/v1`       | `grok-3-mini`  | API key or official Grok Build CLI OAuth.  |
+| OpenAI     | `https://api.openai.com/v1` | `gpt-4o-mini`  | API key or local Codex/ChatGPT OAuth.      |
+
+### OAuth and model selection
+
+The provider controls do not copy OAuth credentials into the browser. Instead,
+they start and inspect the official local CLI session, then call that CLI for a
+forecast. This gives each authenticated CLI a real model dropdown:
+
+- MiniMax: click **MiniMax OAuth** or use an API key, then choose a supported
+  MiniMax model.
+- Grok: click **Grok OAuth**, check the session, and click **Load models** to
+  populate the dropdown from `grok models`.
+- OpenAI: click **ChatGPT OAuth** to run `codex login`, check the session, and
+  choose **Codex CLI default**. OpenAI's Platform API itself continues to use
+  API keys; the OAuth path is for the local Codex/ChatGPT session.
+
+The separate **Settings** view controls forecast strategy, the default single
+provider, and demo fallback. It is deliberately separate from **Providers**,
+which holds endpoint, model, API-key, OAuth, and model-list controls.
 
 The provider adapters use the OpenAI-compatible `/chat/completions` contract. Prompts ask providers to return `<probability>`, `<confidence>`, and `<reasoning>` tags. The app clamps parsed probabilities to 0–100 and keeps each provider opinion visible in the result.
 

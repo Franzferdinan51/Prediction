@@ -25,6 +25,7 @@ const initialBrief: ForecastBrief = {
     "Consider inflation, labor conditions, growth, financial conditions, and the risk of an inflation re-acceleration.",
 };
 const API_BASE = import.meta.env.VITE_SIGNAL_API_URL || "http://127.0.0.1:8787";
+type CliOAuthProvider = "minimax" | "grok" | "openai";
 type HistoryItem = {
   id: string;
   brief: ForecastBrief;
@@ -199,40 +200,91 @@ function App() {
       setRunning(false);
     }
   };
-  const oauth = () => {
-    const url = import.meta.env.VITE_OPENAI_OAUTH_URL;
-    if (url) window.location.assign(url);
-    else
-      setNotice(
-        "OAuth needs a separately hosted callback. API keys and LM Studio local tokens work today.",
-      );
-  };
-  const connectCliOAuth = async (provider: "minimax" | "grok") => {
-    const label = provider === "minimax" ? "MiniMax" : "Grok Build";
+  const cliProviderLabel = (provider: CliOAuthProvider) =>
+    provider === "minimax"
+      ? "MiniMax"
+      : provider === "grok"
+        ? "Grok Build"
+        : "OpenAI / Codex";
+  const loadCliModels = async (provider: CliOAuthProvider) => {
+    const label = cliProviderLabel(provider);
     try {
-      const response = await fetch(`${API_BASE}/api/cli-auth/${provider}/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ flow: "browser" }),
-      });
+      const response = await fetch(
+        `${API_BASE}/api/cli-auth/${provider}/models`,
+      );
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `Could not start ${label} OAuth.`);
-      updateProvider(provider, { authMode: "cli-oauth", connected: false });
-      setNotice(`${label} OAuth started in your browser. Complete login there, then select Check CLI session.`);
+      if (!response.ok)
+        throw new Error(data.error || `Could not load ${label} models.`);
+      const models = Array.isArray(data.models)
+        ? data.models.filter(
+            (model: unknown): model is string => typeof model === "string",
+          )
+        : [];
+      setDiscoveredModels((current) => ({ ...current, [provider]: models }));
+      setNotice(
+        models.length
+          ? `${label} model list loaded — choose a model from its dropdown.`
+          : `${label} did not report a model list. You can still use its configured default.`,
+      );
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : `Could not start ${label} OAuth.`);
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : `Could not load ${label} models.`,
+      );
     }
   };
-  const checkCliOAuth = async (provider: "minimax" | "grok") => {
-    const label = provider === "minimax" ? "MiniMax" : "Grok Build";
+  const connectCliOAuth = async (provider: CliOAuthProvider) => {
+    const label = cliProviderLabel(provider);
     try {
-      const response = await fetch(`${API_BASE}/api/cli-auth/${provider}/status`);
+      const response = await fetch(
+        `${API_BASE}/api/cli-auth/${provider}/login`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ flow: "browser" }),
+        },
+      );
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `Could not check ${label} OAuth.`);
-      updateProvider(provider, { authMode: "cli-oauth", connected: Boolean(data.authenticated) });
-      setNotice(data.authenticated ? `${label} CLI session is ready for forecasts.` : `${label} OAuth is not complete yet. ${data.session?.output || data.detail || "Finish the local CLI login, then check again."}`);
+      if (!response.ok)
+        throw new Error(data.error || `Could not start ${label} OAuth.`);
+      updateProvider(provider, { authMode: "cli-oauth", connected: false });
+      setNotice(
+        `${label} OAuth started in your browser. Complete login there, then select Check CLI session.`,
+      );
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : `Could not check ${label} OAuth.`);
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : `Could not start ${label} OAuth.`,
+      );
+    }
+  };
+  const checkCliOAuth = async (provider: CliOAuthProvider) => {
+    const label = cliProviderLabel(provider);
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/cli-auth/${provider}/status`,
+      );
+      const data = await response.json();
+      if (!response.ok)
+        throw new Error(data.error || `Could not check ${label} OAuth.`);
+      updateProvider(provider, {
+        authMode: "cli-oauth",
+        connected: Boolean(data.authenticated),
+      });
+      if (data.authenticated) void loadCliModels(provider);
+      setNotice(
+        data.authenticated
+          ? `${label} CLI session is ready for forecasts.`
+          : `${label} OAuth is not complete yet. ${data.session?.output || data.detail || "Finish the local CLI login, then check again."}`,
+      );
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : `Could not check ${label} OAuth.`,
+      );
     }
   };
 
@@ -241,24 +293,28 @@ function App() {
       <aside className="rail">
         <div className="brand">SIGNAL</div>
         <nav>
-          {["Forecasts", "History", "Providers", "Agents"].map((item) => (
-            <button
-              className={activeView === item ? "nav-item active" : "nav-item"}
-              onClick={() => setActiveView(item)}
-              key={item}
-            >
-              <span className="nav-glyph">
-                {item === "Forecasts"
-                  ? "⌁"
-                  : item === "History"
-                    ? "◷"
-                    : item === "Providers"
-                      ? "◇"
-                      : "↗"}
-              </span>
-              {item}
-            </button>
-          ))}
+          {["Forecasts", "History", "Providers", "Agents", "Settings"].map(
+            (item) => (
+              <button
+                className={activeView === item ? "nav-item active" : "nav-item"}
+                onClick={() => setActiveView(item)}
+                key={item}
+              >
+                <span className="nav-glyph">
+                  {item === "Forecasts"
+                    ? "⌁"
+                    : item === "History"
+                      ? "◷"
+                      : item === "Providers"
+                        ? "◇"
+                        : item === "Agents"
+                          ? "↗"
+                          : "⚙"}
+                </span>
+                {item}
+              </button>
+            ),
+          )}
         </nav>
       </aside>
       <main className="content">
@@ -273,14 +329,26 @@ function App() {
             {demoMode ? "demo fallback on" : "live mode"}
           </div>
         </header>
-        {activeView === "Providers" ? (
+        {activeView === "Settings" ? (
+          <SettingsView
+            providers={providers}
+            forecastMode={forecastMode}
+            setForecastMode={setForecastMode}
+            singleProvider={singleProvider}
+            setSingleProvider={setSingleProvider}
+            demoMode={demoMode}
+            setDemoMode={setDemoMode}
+            apiBase={API_BASE}
+            notice={notice}
+          />
+        ) : activeView === "Providers" ? (
           <ProviderSettings
             providers={providers}
             updateProvider={updateProvider}
             connect={connect}
-            oauth={oauth}
             connectCliOAuth={connectCliOAuth}
             checkCliOAuth={checkCliOAuth}
+            loadCliModels={loadCliModels}
             demoMode={demoMode}
             setDemoMode={setDemoMode}
             notice={notice}
@@ -591,9 +659,9 @@ function ProviderSettings({
   providers,
   updateProvider,
   connect,
-  oauth,
   connectCliOAuth,
   checkCliOAuth,
+  loadCliModels,
   demoMode,
   setDemoMode,
   notice,
@@ -604,9 +672,9 @@ function ProviderSettings({
   providers: ProviderConfig[];
   updateProvider: (id: ProviderId, patch: Partial<ProviderConfig>) => void;
   connect: (provider: ProviderConfig) => void;
-  oauth: () => void;
-  connectCliOAuth: (provider: "minimax" | "grok") => void;
-  checkCliOAuth: (provider: "minimax" | "grok") => void;
+  connectCliOAuth: (provider: CliOAuthProvider) => void;
+  checkCliOAuth: (provider: CliOAuthProvider) => void;
+  loadCliModels: (provider: CliOAuthProvider) => void;
   demoMode: boolean;
   setDemoMode: (value: boolean) => void;
   notice: string;
@@ -660,20 +728,26 @@ function ProviderSettings({
                 placeholder="OpenAI-compatible endpoint"
               />
               <div className="field-pair">
-                <input
+                <select
                   aria-label={`${provider.name} model`}
-                  list={`${provider.id}-models`}
                   value={provider.model}
                   onChange={(event) =>
                     updateProvider(provider.id, { model: event.target.value })
                   }
-                  placeholder="Model"
-                />
-                <datalist id={`${provider.id}-models`}>
-                  {(discoveredModels[provider.id] || []).map((model) => (
-                    <option key={model} value={model} />
-                  ))}
-                </datalist>
+                >
+                  {[provider.model, ...(discoveredModels[provider.id] || [])]
+                    .filter(
+                      (model, index, values) =>
+                        model && values.indexOf(model) === index,
+                    )
+                    .map((model) => (
+                      <option key={model} value={model}>
+                        {model === "codex-default"
+                          ? "Codex CLI default"
+                          : model}
+                      </option>
+                    ))}
+                </select>
                 <input
                   aria-label={`${provider.name} API key`}
                   type="password"
@@ -688,11 +762,15 @@ function ProviderSettings({
                   }
                 />
               </div>
-              {(provider.id === "minimax" || provider.id === "grok") && (
+              {(provider.id === "minimax" ||
+                provider.id === "grok" ||
+                provider.id === "openai") && (
                 <p className="oauth-note">
                   {provider.authMode === "cli-oauth"
-                    ? "Using the authenticated local CLI session; no OAuth token is copied into this app."
-                    : "Use an API key above, or connect through the provider's local OAuth CLI."}
+                    ? "Using the authenticated local CLI session; no OAuth token is copied into this app. Use the model dropdown after checking the session."
+                    : provider.id === "openai"
+                      ? "Use an OpenAI API key above, or connect your local Codex CLI through ChatGPT OAuth."
+                      : "Use an API key above, or connect through the provider's local OAuth CLI."}
                 </p>
               )}
               {providerIssues[provider.id] && (
@@ -703,34 +781,41 @@ function ProviderSettings({
             </div>
             <div className="provider-actions">
               <button className="secondary" onClick={() => connect(provider)}>
-                {provider.id === "lmstudio"
-                  ? "Auto-connect"
-                  : "Test API key"}
+                {provider.id === "lmstudio" ? "Auto-connect" : "Test API key"}
               </button>
-              {(provider.id === "minimax" || provider.id === "grok") && (
+              {(provider.id === "minimax" ||
+                provider.id === "grok" ||
+                provider.id === "openai") && (
                 <>
                   <button
                     className="oauth"
                     onClick={() =>
-                      connectCliOAuth(provider.id as "minimax" | "grok")
+                      connectCliOAuth(provider.id as CliOAuthProvider)
                     }
                   >
-                    {provider.id === "minimax" ? "MiniMax OAuth" : "Grok OAuth"}
+                    {provider.id === "minimax"
+                      ? "MiniMax OAuth"
+                      : provider.id === "grok"
+                        ? "Grok OAuth"
+                        : "ChatGPT OAuth"}
                   </button>
                   <button
                     className="secondary"
                     onClick={() =>
-                      checkCliOAuth(provider.id as "minimax" | "grok")
+                      checkCliOAuth(provider.id as CliOAuthProvider)
                     }
                   >
                     Check CLI session
                   </button>
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      loadCliModels(provider.id as CliOAuthProvider)
+                    }
+                  >
+                    Load models
+                  </button>
                 </>
-              )}
-              {provider.id === "openai" && (
-                <button className="oauth" onClick={oauth}>
-                  Connect OAuth
-                </button>
               )}
             </div>
           </div>
@@ -751,6 +836,108 @@ function ProviderSettings({
           </button>
         </div>
       </div>
+    </section>
+  );
+}
+
+function SettingsView({
+  providers,
+  forecastMode,
+  setForecastMode,
+  singleProvider,
+  setSingleProvider,
+  demoMode,
+  setDemoMode,
+  apiBase,
+  notice,
+}: {
+  providers: ProviderConfig[];
+  forecastMode: ForecastMode;
+  setForecastMode: (value: ForecastMode) => void;
+  singleProvider: ProviderId;
+  setSingleProvider: (value: ProviderId) => void;
+  demoMode: boolean;
+  setDemoMode: (value: boolean) => void;
+  apiBase: string;
+  notice: string;
+}) {
+  return (
+    <section className="settings-view">
+      <div className="settings-intro">
+        <span className="section-label">Application settings</span>
+        <h2>Set how forecasts run by default.</h2>
+        <p>
+          These controls affect the next forecast. Provider credentials, OAuth
+          sessions, and model choices remain in Providers.
+        </p>
+      </div>
+      <div className="settings-list app-settings-list">
+        <label className="app-setting">
+          <span>
+            <strong>Forecast strategy</strong>
+            <small>Choose the default execution path.</small>
+          </span>
+          <select
+            aria-label="Default forecast strategy"
+            value={forecastMode}
+            onChange={(event) =>
+              setForecastMode(event.target.value as ForecastMode)
+            }
+          >
+            <option value="ensemble">Ensemble of connected providers</option>
+            <option value="single">One selected provider</option>
+            <option value="local-moa">LM Studio local MoA</option>
+          </select>
+        </label>
+        <label className="app-setting">
+          <span>
+            <strong>Single-provider choice</strong>
+            <small>Used whenever Single provider is selected.</small>
+          </span>
+          <select
+            aria-label="Default single provider"
+            value={singleProvider}
+            onChange={(event) =>
+              setSingleProvider(event.target.value as ProviderId)
+            }
+          >
+            {providers.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.name}
+                {provider.connected ? " · connected" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="app-setting">
+          <span>
+            <strong>Demo fallback</strong>
+            <small>
+              Use sample forecasts until you deliberately switch to live mode.
+            </small>
+          </span>
+          <span className="toggle">
+            <input
+              aria-label="Demo fallback"
+              type="checkbox"
+              checked={demoMode}
+              onChange={(event) => setDemoMode(event.target.checked)}
+            />
+            <span />
+          </span>
+        </label>
+        <div className="app-setting app-setting-note">
+          <span>
+            <strong>Local connector API</strong>
+            <small>
+              {apiBase} · used for CLI OAuth, research, MoA, and agent
+              connectors.
+            </small>
+          </span>
+          <span className="connection live">Ready</span>
+        </div>
+      </div>
+      <p className="settings-status">{notice}</p>
     </section>
   );
 }

@@ -90,7 +90,6 @@ export const defaultProviders: ProviderConfig[] = [
     model: "gpt-4o-mini",
     apiKey: "",
     connected: false,
-    oauthConfigured: Boolean(import.meta.env.VITE_OPENAI_OAUTH_URL),
   },
 ];
 
@@ -246,7 +245,11 @@ async function askCliProvider(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     signal: AbortSignal.timeout(120000),
-    body: JSON.stringify({ provider: provider.id, brief }),
+    body: JSON.stringify({
+      provider: provider.id,
+      model: provider.model,
+      brief,
+    }),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok)
