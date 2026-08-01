@@ -412,9 +412,18 @@ function App() {
           )
         : [];
       setDiscoveredModels((current) => ({ ...current, [provider]: models }));
+      if (models.length) {
+        setProviders((current) =>
+          current.map((item) =>
+            item.id === provider && !models.includes(item.model)
+              ? { ...item, model: models[0] }
+              : item,
+          ),
+        );
+      }
       setNotice(
         models.length
-          ? `${label} model list loaded — choose a model from its dropdown.`
+          ? `${label} model list loaded${models.includes(providers.find((item) => item.id === provider)?.model || "") ? "" : ` — switched to ${models[0]}, a valid CLI model`}.`
           : `${label} did not report a model list. You can still use its configured default.`,
       );
     } catch (error) {

@@ -98,7 +98,9 @@ export const defaultProviders: ProviderConfig[] = [
     id: "grok",
     name: "Grok",
     endpoint: "https://api.x.ai/v1",
-    model: "grok-3-mini",
+    // Grok Build OAuth exposes its own model catalogue; grok-4.5 is the
+    // current stable default reported by the local CLI.
+    model: "grok-4.5",
     apiKey: "",
     connected: false,
   },

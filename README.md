@@ -141,7 +141,7 @@ Default configurations:
 | ---------- | --------------------------- | -------------- | ------------------------------------------ |
 | LM Studio  | `http://localhost:1234/v1`  | `local-model`  | Usually none; auto-connect uses `/models`. |
 | MiniMax    | `https://api.minimax.io/v1` | `MiniMax-M2.7` | API key or official MiniMax CLI OAuth.     |
-| Grok / xAI | `https://api.x.ai/v1`       | `grok-3-mini`  | API key or official Grok Build CLI OAuth.  |
+| Grok / xAI | `https://api.x.ai/v1`       | `grok-4.5`  | API key or official Grok Build CLI OAuth.  |
 | OpenAI     | `https://api.openai.com/v1` | `gpt-4o-mini`  | API key or local Codex/ChatGPT OAuth.      |
 
 ### OAuth and model selection

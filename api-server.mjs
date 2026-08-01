@@ -45,7 +45,7 @@ const providers = {
     id: "grok",
     name: "Grok",
     endpoint: "https://api.x.ai/v1",
-    model: "grok-3-mini",
+    model: "grok-4.5",
   },
   openai: {
     id: "openai",
@@ -786,9 +786,16 @@ async function runCliForecast(input) {
   let outputDirectory = "";
   try {
     const prompt = cliForecastPrompt(input.brief || {});
-    const model = String(input.model || "")
+    let model = String(input.model || "")
       .trim()
       .slice(0, 160);
+    if (provider === "grok") {
+      const availableModels = await cliModels("grok");
+      // Older browser settings used the xAI API's grok-3-mini identifier,
+      // which is not accepted by Grok Build OAuth. Recover automatically.
+      if (availableModels.length && !availableModels.includes(model))
+        model = availableModels[0];
+    }
     if (provider === "openai")
       outputDirectory = await mkdtemp(join(tmpdir(), "signal-codex-"));
     const outputPath = outputDirectory
@@ -812,6 +819,10 @@ async function runCliForecast(input) {
               "--output-format",
               "plain",
               ...(model ? ["--model", model] : []),
+              "--max-turns",
+              "1",
+              "--no-subagents",
+              "--disable-web-search",
             ]
           : [
               "exec",
