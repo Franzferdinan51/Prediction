@@ -165,6 +165,17 @@ function normalizeResults(provider, data) {
     .filter((item) => item.url);
 }
 
+function searchErrorMessage(provider, error) {
+  const code = error?.cause?.code || error?.code;
+  if (code === "ECONNREFUSED")
+    return `${provider === "searxng" ? "SearXNG" : provider} rejected the connection. The host is reachable, but no service is listening on that port; bind the service to its LAN/Tailscale interface and check its firewall.`;
+  if (code === "ETIMEDOUT" || error?.name === "TimeoutError")
+    return `${provider === "searxng" ? "SearXNG" : provider} timed out. Check routing, firewall rules, and whether the service is healthy.`;
+  if (code === "ENOTFOUND")
+    return `${provider === "searxng" ? "SearXNG" : provider} host could not be resolved.`;
+  return error instanceof Error ? error.message : "Search failed";
+}
+
 async function providerSearch(provider, query, options) {
   if (provider === "searxng") {
     const baseUrl = String(
@@ -303,7 +314,7 @@ async function searchWeb(input) {
       errors.push({
         provider,
         query,
-        error: error instanceof Error ? error.message : "Search failed",
+        error: searchErrorMessage(provider, error),
       });
     }
   }
