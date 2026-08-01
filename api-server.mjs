@@ -159,7 +159,21 @@ function normalizeResults(provider, data) {
 
 async function providerSearch(provider, query, options) {
   if (provider === "searxng") {
-    const url = new URL(`${SEARXNG_URL}/search`);
+    const baseUrl = String(
+      options.searchConfig?.searxngUrl || SEARXNG_URL,
+    ).replace(/\/$/, "");
+    let url;
+    try {
+      url = new URL(`${baseUrl}/search`);
+      if (url.protocol !== "http:" && url.protocol !== "https:")
+        throw new Error("SearXNG endpoint must use http or https.");
+    } catch (error) {
+      throw new Error(
+        error instanceof Error && error.message.includes("http")
+          ? error.message
+          : "Enter a valid SearXNG base URL.",
+      );
+    }
     url.searchParams.set("q", query);
     url.searchParams.set("format", "json");
     url.searchParams.set("safesearch", String(options.safeSearch ?? 1));
@@ -173,12 +187,16 @@ async function providerSearch(provider, query, options) {
     };
   }
   if (provider === "tavily") {
-    if (!TAVILY_API_KEY) throw new Error("TAVILY_API_KEY is not configured");
+    const apiKey = String(
+      options.searchConfig?.tavilyApiKey || TAVILY_API_KEY,
+    ).trim();
+    if (!apiKey)
+      throw new Error("Add a Tavily API key in Settings → Search providers.");
     const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${TAVILY_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
         query,
@@ -197,8 +215,13 @@ async function providerSearch(provider, query, options) {
     };
   }
   if (provider === "brave") {
-    if (!BRAVE_SEARCH_API_KEY)
-      throw new Error("BRAVE_SEARCH_API_KEY is not configured");
+    const apiKey = String(
+      options.searchConfig?.braveApiKey || BRAVE_SEARCH_API_KEY,
+    ).trim();
+    if (!apiKey)
+      throw new Error(
+        "Add a Brave Search API key in Settings → Search providers.",
+      );
     const url = new URL("https://api.search.brave.com/res/v1/web/search");
     url.searchParams.set("q", query);
     url.searchParams.set("count", String(Math.min(options.maxResults, 10)));
@@ -206,7 +229,7 @@ async function providerSearch(provider, query, options) {
     const response = await fetch(url, {
       headers: {
         Accept: "application/json",
-        "X-Subscription-Token": BRAVE_SEARCH_API_KEY,
+        "X-Subscription-Token": apiKey,
       },
       signal: AbortSignal.timeout(15000),
     });
@@ -429,10 +452,11 @@ async function runForecast(input) {
     if (input.search !== false) {
       try {
         const research = await searchWeb({
-          provider: "searxng",
+          provider: input.searchConfig?.provider || "searxng",
           depth: "deep",
           queries: [event, `${event} macro factors`, `${event} latest news`],
           maxResults: 5,
+          searchConfig: input.searchConfig,
         });
         researchContext += `\n\nSearch context:\n${research.results.map((item) => `- ${item.title}: ${item.snippet} (${item.url})`).join("\n")}`;
       } catch (error) {

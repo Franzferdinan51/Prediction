@@ -19,6 +19,13 @@ export type ProviderConfig = {
   oauthConfigured?: boolean;
 };
 
+export type SearchConfig = {
+  provider: "searxng" | "tavily" | "brave";
+  searxngUrl: string;
+  tavilyApiKey: string;
+  braveApiKey: string;
+};
+
 export type ForecastReadout = {
   thesis: string;
   drivers: string[];
@@ -350,6 +357,7 @@ export async function runForecast(
     mode?: ForecastMode;
     providerId?: ProviderId;
     apiBase?: string;
+    searchConfig?: SearchConfig;
   } = {},
 ): Promise<ForecastResult> {
   const mode = options.mode || "ensemble";
@@ -373,6 +381,7 @@ export async function runForecast(
             .join("\n\n"),
           provider: lmStudio,
           search: true,
+          searchConfig: options.searchConfig,
         }),
       },
     );

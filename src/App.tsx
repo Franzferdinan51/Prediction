@@ -6,6 +6,7 @@ import {
   type ForecastResult,
   type ProviderConfig,
   type ProviderId,
+  type SearchConfig,
   probeProvider,
   runForecast,
 } from "./lib/forecast";
@@ -26,6 +27,7 @@ const initialBrief: ForecastBrief = {
 };
 const API_BASE = import.meta.env.VITE_SIGNAL_API_URL || "http://127.0.0.1:8787";
 type CliOAuthProvider = "minimax" | "grok" | "openai";
+type SearchProviderId = "searxng" | "tavily" | "brave";
 type HistoryItem = {
   id: string;
   brief: ForecastBrief;
@@ -63,6 +65,26 @@ function storedHistory(): HistoryItem[] {
   }
 }
 
+function storedSearchConfig(): SearchConfig {
+  try {
+    return {
+      provider: "searxng",
+      searxngUrl: "http://127.0.0.1:8080",
+      tavilyApiKey: "",
+      braveApiKey: "",
+      ...(JSON.parse(localStorage.getItem("signal-search-config") || "{}") ||
+        {}),
+    };
+  } catch {
+    return {
+      provider: "searxng",
+      searxngUrl: "http://127.0.0.1:8080",
+      tavilyApiKey: "",
+      braveApiKey: "",
+    };
+  }
+}
+
 function App() {
   const [brief, setBrief] = useState<ForecastBrief>(initialBrief);
   const [providers, setProviders] = useState<ProviderConfig[]>(storedProviders);
@@ -82,6 +104,8 @@ function App() {
   const [discoveredModels, setDiscoveredModels] = useState<
     Record<string, string[]>
   >({});
+  const [searchConfig, setSearchConfig] =
+    useState<SearchConfig>(storedSearchConfig);
 
   const connectedCount = providers.filter(
     (provider) => provider.connected,
@@ -106,6 +130,10 @@ function App() {
   const saveProviders = () => {
     localStorage.setItem("signal-providers", JSON.stringify(providers));
     setNotice("Provider settings saved locally in this browser.");
+  };
+  const saveSearchConfig = () => {
+    localStorage.setItem("signal-search-config", JSON.stringify(searchConfig));
+    setNotice("Search provider settings saved locally in this browser.");
   };
   const recordForecast = (forecast: ForecastResult) =>
     setHistory((current) => {
@@ -186,6 +214,7 @@ function App() {
         mode: forecastMode,
         providerId: singleProvider,
         apiBase: API_BASE,
+        searchConfig,
       });
       setResult(forecast);
       recordForecast(forecast);
@@ -340,6 +369,10 @@ function App() {
             setDemoMode={setDemoMode}
             apiBase={API_BASE}
             notice={notice}
+            searchConfig={searchConfig}
+            setSearchConfig={setSearchConfig}
+            saveSearchConfig={saveSearchConfig}
+            setNotice={setNotice}
           />
         ) : activeView === "Providers" ? (
           <ProviderSettings
@@ -357,7 +390,12 @@ function App() {
             saveProviders={saveProviders}
           />
         ) : activeView === "Agents" ? (
-          <AgentSettings brief={brief} notice={notice} setNotice={setNotice} />
+          <AgentSettings
+            brief={brief}
+            notice={notice}
+            setNotice={setNotice}
+            searchConfig={searchConfig}
+          />
         ) : activeView === "History" ? (
           <HistoryView
             history={history}
@@ -850,6 +888,10 @@ function SettingsView({
   setDemoMode,
   apiBase,
   notice,
+  searchConfig,
+  setSearchConfig,
+  saveSearchConfig,
+  setNotice,
 }: {
   providers: ProviderConfig[];
   forecastMode: ForecastMode;
@@ -860,7 +902,37 @@ function SettingsView({
   setDemoMode: (value: boolean) => void;
   apiBase: string;
   notice: string;
+  searchConfig: SearchConfig;
+  setSearchConfig: (value: SearchConfig) => void;
+  saveSearchConfig: () => void;
+  setNotice: (value: string) => void;
 }) {
+  const updateSearchConfig = (patch: Partial<SearchConfig>) =>
+    setSearchConfig({ ...searchConfig, ...patch });
+  const testSearchProvider = async (provider: SearchProviderId) => {
+    setNotice(`Testing ${provider === "searxng" ? "SearXNG" : provider}…`);
+    try {
+      const response = await fetch(`${apiBase}/api/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider,
+          query: "forecasting calibration",
+          maxResults: 1,
+          searchConfig,
+        }),
+      });
+      const data = await response.json();
+      const error = data.errors?.[0]?.error;
+      setNotice(
+        response.ok && !error
+          ? `${provider === "searxng" ? "SearXNG" : provider} connected — ${data.results?.length || 0} result${data.results?.length === 1 ? "" : "s"} returned.`
+          : error || data.error || `${provider} connection failed.`,
+      );
+    } catch {
+      setNotice("Search connector API is unavailable. Start npm run dev:api.");
+    }
+  };
   return (
     <section className="settings-view">
       <div className="settings-intro">
@@ -937,7 +1009,112 @@ function SettingsView({
           <span className="connection live">Ready</span>
         </div>
       </div>
-      <p className="settings-status">{notice}</p>
+      <div className="settings-intro search-settings-intro">
+        <span className="section-label">Search providers</span>
+        <h2>Connect the research sources you use.</h2>
+        <p>
+          SearXNG is the default. Keys stay in this browser and are sent only to
+          the local connector when you run a search; they are never returned by
+          the API.
+        </p>
+      </div>
+      <div className="settings-list app-settings-list search-provider-list">
+        <label className="app-setting">
+          <span>
+            <strong>Default research provider</strong>
+            <small>
+              Used by the in-app agent research loop and local MoA research.
+            </small>
+          </span>
+          <select
+            aria-label="Default search provider"
+            value={searchConfig.provider}
+            onChange={(event) =>
+              updateSearchConfig({
+                provider: event.target.value as SearchProviderId,
+              })
+            }
+          >
+            <option value="searxng">SearXNG</option>
+            <option value="tavily">Tavily</option>
+            <option value="brave">Brave Search</option>
+          </select>
+        </label>
+        <div className="app-setting search-provider-setting">
+          <span>
+            <strong>SearXNG endpoint</strong>
+            <small>Self-hosted SearXNG base URL. No API key required.</small>
+          </span>
+          <div className="search-provider-action">
+            <input
+              aria-label="SearXNG endpoint"
+              value={searchConfig.searxngUrl}
+              onChange={(event) =>
+                updateSearchConfig({ searxngUrl: event.target.value })
+              }
+              placeholder="http://127.0.0.1:8080"
+            />
+            <button
+              className="secondary"
+              onClick={() => testSearchProvider("searxng")}
+            >
+              Test SearXNG
+            </button>
+          </div>
+        </div>
+        <div className="app-setting search-provider-setting">
+          <span>
+            <strong>Tavily API key</strong>
+            <small>Optional web-research provider.</small>
+          </span>
+          <div className="search-provider-action">
+            <input
+              aria-label="Tavily API key"
+              type="password"
+              value={searchConfig.tavilyApiKey}
+              onChange={(event) =>
+                updateSearchConfig({ tavilyApiKey: event.target.value })
+              }
+              placeholder="tvly-…"
+            />
+            <button
+              className="secondary"
+              onClick={() => testSearchProvider("tavily")}
+            >
+              Test Tavily
+            </button>
+          </div>
+        </div>
+        <div className="app-setting search-provider-setting">
+          <span>
+            <strong>Brave Search API key</strong>
+            <small>Optional web-search provider.</small>
+          </span>
+          <div className="search-provider-action">
+            <input
+              aria-label="Brave Search API key"
+              type="password"
+              value={searchConfig.braveApiKey}
+              onChange={(event) =>
+                updateSearchConfig({ braveApiKey: event.target.value })
+              }
+              placeholder="BSA…"
+            />
+            <button
+              className="secondary"
+              onClick={() => testSearchProvider("brave")}
+            >
+              Test Brave
+            </button>
+          </div>
+        </div>
+        <div className="settings-footer">
+          <span>{notice}</span>
+          <button className="primary" onClick={saveSearchConfig}>
+            Save search settings
+          </button>
+        </div>
+      </div>
     </section>
   );
 }
@@ -1022,10 +1199,12 @@ function AgentSettings({
   brief,
   notice,
   setNotice,
+  searchConfig,
 }: {
   brief: ForecastBrief;
   notice: string;
   setNotice: (value: string) => void;
+  searchConfig: SearchConfig;
 }) {
   const [connectorStatus, setConnectorStatus] = useState<Record<
     string,
@@ -1035,7 +1214,9 @@ function AgentSettings({
   const [searchQuery, setSearchQuery] = useState(
     `${brief.question} macro factors`,
   );
-  const [searchProvider, setSearchProvider] = useState("searxng");
+  const [searchProvider, setSearchProvider] = useState<SearchProviderId>(
+    searchConfig.provider,
+  );
   const [searchDepth, setSearchDepth] = useState("quick");
   const [searchResults, setSearchResults] = useState<
     Array<{ title: string; url: string; snippet: string; source: string }>
@@ -1087,6 +1268,7 @@ function AgentSettings({
           depth: searchDepth,
           query: searchQuery,
           maxResults: 5,
+          searchConfig,
         }),
       });
       const data = await response.json();
@@ -1155,7 +1337,9 @@ function AgentSettings({
           <select
             aria-label="Search provider"
             value={searchProvider}
-            onChange={(event) => setSearchProvider(event.target.value)}
+            onChange={(event) =>
+              setSearchProvider(event.target.value as SearchProviderId)
+            }
           >
             <option value="searxng">SearXNG · default</option>
             <option value="tavily">Tavily · API key</option>

@@ -161,6 +161,21 @@ The separate **Settings** view controls forecast strategy, the default single
 provider, and demo fallback. It is deliberately separate from **Providers**,
 which holds endpoint, model, API-key, OAuth, and model-list controls.
 
+### Search providers
+
+Open **Settings → Search providers** to configure research. The configuration is
+stored locally in the browser, like provider API keys, and passed only to the
+local API with the request that uses it.
+
+- **SearXNG** is the default. Enter the base URL of your self-hosted instance
+  and use **Test SearXNG**; it does not require a key.
+- **Tavily** and **Brave Search** each have an API-key field and a test button.
+- Choose the default provider to use it in the Agents research loop and in
+  Local MoA research. The search API stays bounded to avoid runaway querying.
+
+Server-side `SEARXNG_URL`, `TAVILY_API_KEY`, and `BRAVE_SEARCH_API_KEY`
+environment variables remain available as fallbacks for headless/API use.
+
 The provider adapters use the OpenAI-compatible `/chat/completions` contract. Prompts ask providers to return `<probability>`, `<confidence>`, and `<reasoning>` tags. The app clamps parsed probabilities to 0–100 and keeps each provider opinion visible in the result.
 
 ### MiniMax and Grok OAuth through their official CLIs
