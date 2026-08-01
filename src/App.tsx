@@ -310,7 +310,7 @@ function App() {
       } else {
         addActivity({
           level: "info",
-          message: `Researching context with ${searchConfig.provider === "searxng" ? "SearXNG" : searchConfig.provider}…`,
+          message: `Researching deeply with ${searchConfig.provider === "searxng" ? "SearXNG" : searchConfig.provider}: six angles across current developments, drivers, data, risks, and scenarios…`,
         });
         try {
           const response = await fetch(`${API_BASE}/api/research`, {
@@ -319,8 +319,8 @@ function App() {
             body: JSON.stringify({
               event: brief.question,
               provider: searchConfig.provider,
-              depth: "quick",
-              maxResults: 4,
+              depth: "deep",
+              maxResults: 8,
               searchConfig,
             }),
           });
@@ -331,7 +331,7 @@ function App() {
           const errors = Array.isArray(research.errors) ? research.errors : [];
           if (results.length) {
             const sources = results
-              .slice(0, 8)
+              .slice(0, 18)
               .map(
                 (item: { title?: string; snippet?: string; url?: string }) =>
                   `- ${item.title || "Source"}: ${item.snippet || ""} (${item.url || ""})`,
@@ -345,7 +345,7 @@ function App() {
             };
             addActivity({
               level: "success",
-              message: `Research attached: ${results.length} source${results.length === 1 ? "" : "s"}.`,
+              message: `Deep research attached: ${results.length} source${results.length === 1 ? "" : "s"} from ${research.budget?.uniqueDomains || "multiple"} domain${research.budget?.uniqueDomains === 1 ? "" : "s"}; ${research.budget?.usedQueries || 0} research angles searched.`,
             });
           } else if (errors.length) {
             addActivity({

@@ -321,17 +321,39 @@ async function searchWeb(input) {
   }
   const unique = [
     ...new Map(results.map((result) => [result.url, result])).values(),
-  ].slice(0, queries.length * maxResults);
+  ];
+  // A deep pass should not be dominated by a single publisher. Keep the first
+  // result from each domain before filling the remaining source budget.
+  const seenDomains = new Set();
+  const diverse = [];
+  const remainder = [];
+  for (const result of unique) {
+    let domain = result.url;
+    try {
+      domain = new URL(result.url).hostname.replace(/^www\./, "");
+    } catch {
+      // Preserve malformed-but-useful provider results after valid URLs.
+    }
+    if (!seenDomains.has(domain)) {
+      seenDomains.add(domain);
+      diverse.push(result);
+    } else {
+      remainder.push(result);
+    }
+  }
+  const sourceBudget = queries.length * maxResults;
+  const selected = [...diverse, ...remainder].slice(0, sourceBudget);
   return {
     provider,
     depth,
     queries,
-    results: unique,
+    results: selected,
     errors,
     budget: {
       maxQueries,
       usedQueries: queries.length,
       maxResultsPerQuery: maxResults,
+      uniqueDomains: seenDomains.size,
       cacheTtlSeconds: 300,
     },
   };
@@ -924,8 +946,11 @@ const server = http.createServer(async (req, res) => {
           depth: input.depth || "deep",
           queries: input.queries || [
             input.event,
-            `${input.event} macro factors`,
-            `${input.event} latest news`,
+            `${input.event} latest developments and current status`,
+            `${input.event} macroeconomic and geopolitical drivers`,
+            `${input.event} official data, primary sources, and key statistics`,
+            `${input.event} risks, counterarguments, and disconfirming evidence`,
+            `${input.event} scenarios, leading indicators, and forecast signals`,
           ],
         }),
       );
