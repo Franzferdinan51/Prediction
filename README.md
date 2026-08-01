@@ -26,7 +26,7 @@ If the API uses a non-default port, set `VITE_SIGNAL_API_URL` in `.env.local` be
 - `POST /api/agent/hermes` with `{ "prompt": "...", "model?": "...", "provider?": "..." }`.
 - `GET /api/connectors` for local MoA/OpenClaw/Hermes discovery.
 
-Set `SIGNAL_API_TOKEN` and send `Authorization: Bearer <token>` before exposing the API beyond localhost. The OpenClaw adapter uses `openclaw agent --json --message` without `--deliver`; Hermes uses its `-z/--oneshot` mode. Neither connector sends an external message by default.
+Set `SIGNAL_API_TOKEN` and send `Authorization: Bearer <token>` before exposing the API beyond localhost. Loopback browser requests remain usable for the local UI while non-loopback callers must authenticate. Request bodies are capped at 1 MiB, search is bounded/cached, and each agent connector permits one active turn per agent. The OpenClaw adapter uses `openclaw agent --json --message` without `--deliver`; Hermes uses its `-z/--oneshot` mode. Neither connector sends an external message by default.
 
 ## Providers
 

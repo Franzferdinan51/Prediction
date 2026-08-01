@@ -12,8 +12,10 @@ const ROOT = new URL('.', import.meta.url).pathname;
 const SEARXNG_URL = (process.env.SEARXNG_URL || 'http://127.0.0.1:8080').replace(/\/$/, '');
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '';
 const BRAVE_SEARCH_API_KEY = process.env.BRAVE_SEARCH_API_KEY || '';
+const MAX_BODY_BYTES = 1024 * 1024;
 const searchCache = new Map();
 const searchInFlight = new Map();
+const agentInFlight = new Set();
 
 const providers = {
   lmstudio: { id: 'lmstudio', name: 'LM Studio', endpoint: 'http://127.0.0.1:1234/v1', model: 'local-model' },
@@ -29,12 +31,21 @@ function json(res, status, body) {
 
 async function body(req) {
   let raw = '';
-  for await (const chunk of req) raw += chunk;
+  let bytes = 0;
+  for await (const chunk of req) {
+    bytes += Buffer.byteLength(chunk);
+    if (bytes > MAX_BODY_BYTES) throw Object.assign(new Error('Request body exceeds 1 MiB.'), { status: 413 });
+    raw += chunk;
+  }
   return raw ? JSON.parse(raw) : {};
 }
 
+function isLoopback(req) {
+  return ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
+}
+
 function authorized(req) {
-  return !API_TOKEN || req.headers.authorization === `Bearer ${API_TOKEN}`;
+  return !API_TOKEN || isLoopback(req) || req.headers.authorization === `Bearer ${API_TOKEN}`;
 }
 
 function textFromCompletion(data) {
@@ -115,8 +126,13 @@ async function searchWeb(input) {
   return { provider, depth, queries, results: unique, errors, budget: { maxQueries, usedQueries: queries.length, maxResultsPerQuery: maxResults, cacheTtlSeconds: 300 } };
 }
 
-function nextLine(reader) {
+function nextLine(reader, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reader.stream.off('data', onData);
+      reader.stream.off('error', onError);
+      reject(new Error('Local MoA timed out waiting for MCP response.'));
+    }, timeoutMs);
     const onData = (chunk) => {
       reader.buffer += chunk.toString();
       const newline = reader.buffer.indexOf('\n');
@@ -125,10 +141,11 @@ function nextLine(reader) {
       reader.buffer = reader.buffer.slice(newline + 1);
       reader.stream.off('data', onData);
       reader.stream.off('error', onError);
+      clearTimeout(timeout);
       if (!line) return nextLine(reader).then(resolve, reject);
       try { resolve(JSON.parse(line)); } catch (error) { reject(error); }
     };
-    const onError = (error) => { reader.stream.off('data', onData); reject(error); };
+    const onError = (error) => { reader.stream.off('data', onData); clearTimeout(timeout); reject(error); };
     reader.stream.on('data', onData);
     reader.stream.on('error', onError);
   });
@@ -140,15 +157,18 @@ async function callLocalMoa(task, context = '') {
   const reader = { stream: child.stdout, buffer: '' };
   let requestId = 0;
   const send = (method, params = {}) => { const id = ++requestId; child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`); return id; };
-  send('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'signal-forecast', version: '0.1.0' } });
-  await nextLine(reader);
-  child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} })}\n`);
-  const id = send('tools/call', { name: 'moa_advice', arguments: { task, context } });
-  let message;
-  for (;;) { message = await nextLine(reader); if (message.id === id) break; }
-  child.kill();
-  const text = message.result?.content?.find((item) => item.type === 'text')?.text || message.error?.message || 'Local MoA returned no text.';
-  return { text, probability: parseProbability(text), status: message.result?.isError ? 'error' : 'live' };
+  try {
+    send('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'signal-forecast', version: '0.1.0' } });
+    await nextLine(reader);
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} })}\n`);
+    const id = send('tools/call', { name: 'moa_advice', arguments: { task, context } });
+    let message;
+    for (;;) { message = await nextLine(reader); if (message.id === id) break; }
+    const text = message.result?.content?.find((item) => item.type === 'text')?.text || message.error?.message || 'Local MoA returned no text.';
+    return { text, probability: parseProbability(text), status: message.result?.isError ? 'error' : 'live' };
+  } finally {
+    child.kill();
+  }
 }
 
 async function runForecast(input) {
@@ -166,7 +186,7 @@ async function runForecast(input) {
     return { mode, probability: moa.probability, confidence: 'Medium', opinions: [{ provider: 'lmstudio', probability: moa.probability, confidence: 'MoA', reasoning: moa.text, status: moa.status }], summary: moa.text };
   }
   const configured = input.provider || providers.lmstudio;
-  const opinion = await providerForecast({ ...configured, ...providers[configured.id] ? { name: providers[configured.id].name } : {} }, event, deadline);
+  const opinion = await providerForecast({ ...configured, name: providers[configured.id]?.name || configured.name || configured.id }, event, deadline);
   return { mode: 'single', probability: opinion.probability, confidence: opinion.confidence, opinions: [opinion], summary: opinion.reasoning };
 }
 
@@ -178,18 +198,24 @@ async function commandStatus(command) {
 async function runAgent(kind, input) {
   const prompt = String(input.prompt || '').trim();
   if (!prompt) throw new Error('prompt is required');
-  if (kind === 'openclaw') {
-    const args = ['agent', '--json', '--message', prompt];
-    if (input.agentId) args.push('--agent', String(input.agentId));
-    if (input.sessionKey) args.push('--session-key', String(input.sessionKey));
-    const result = await execFileAsync(process.env.OPENCLAW_COMMAND || 'openclaw', args, { timeout: 600000, maxBuffer: 1024 * 1024 });
-    return { agent: 'openclaw', output: result.stdout.trim() };
+  if (agentInFlight.has(kind)) throw Object.assign(new Error(`${kind} connector is already running.`), { status: 429 });
+  agentInFlight.add(kind);
+  try {
+    if (kind === 'openclaw') {
+      const args = ['agent', '--json', '--message', prompt];
+      if (input.agentId) args.push('--agent', String(input.agentId));
+      if (input.sessionKey) args.push('--session-key', String(input.sessionKey));
+      const result = await execFileAsync(process.env.OPENCLAW_COMMAND || 'openclaw', args, { timeout: 600000, maxBuffer: 1024 * 1024 });
+      return { agent: 'openclaw', output: result.stdout.trim() };
+    }
+    const args = ['-z', prompt];
+    if (input.model) args.push('--model', String(input.model));
+    if (input.provider) args.push('--provider', String(input.provider));
+    const result = await execFileAsync(process.env.HERMES_COMMAND || 'hermes', args, { timeout: 600000, maxBuffer: 1024 * 1024 });
+    return { agent: 'hermes', output: result.stdout.trim() };
+  } finally {
+    agentInFlight.delete(kind);
   }
-  const args = ['-z', prompt];
-  if (input.model) args.push('--model', String(input.model));
-  if (input.provider) args.push('--provider', String(input.provider));
-  const result = await execFileAsync(process.env.HERMES_COMMAND || 'hermes', args, { timeout: 600000, maxBuffer: 1024 * 1024 });
-  return { agent: 'hermes', output: result.stdout.trim() };
 }
 
 const server = http.createServer(async (req, res) => {
@@ -206,7 +232,7 @@ const server = http.createServer(async (req, res) => {
     if (req.url === '/api/agent/openclaw') return json(res, 200, await runAgent('openclaw', input));
     if (req.url === '/api/agent/hermes') return json(res, 200, await runAgent('hermes', input));
     return json(res, 404, { error: 'Not found' });
-  } catch (error) { return json(res, 502, { error: error instanceof Error ? error.message : 'Request failed' }); }
+  } catch (error) { return json(res, error?.status || 502, { error: error instanceof Error ? error.message : 'Request failed' }); }
 });
 
 server.listen(PORT, HOST, () => console.log(`Signal Forecast API listening at http://${HOST}:${PORT}`));
