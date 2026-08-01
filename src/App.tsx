@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   defaultProviders,
   type ForecastBrief,
@@ -142,6 +142,45 @@ function App() {
   >({});
   const [searchConfig, setSearchConfig] =
     useState<SearchConfig>(storedSearchConfig);
+
+  useEffect(() => {
+    let cancelled = false;
+    const cliProviders: CliOAuthProvider[] = ["minimax", "grok", "openai"];
+    void Promise.all(
+      cliProviders.map(async (provider) => {
+        try {
+          const response = await fetch(
+            `${API_BASE}/api/cli-auth/${provider}/status`,
+          );
+          const data = await response.json();
+          return {
+            provider,
+            authenticated: response.ok && Boolean(data.authenticated),
+          };
+        } catch {
+          return { provider, authenticated: false };
+        }
+      }),
+    ).then((statuses) => {
+      if (cancelled) return;
+      const ready = new Set(
+        statuses
+          .filter((status) => status.authenticated)
+          .map((status) => status.provider),
+      );
+      if (!ready.size) return;
+      setProviders((current) =>
+        current.map((provider) =>
+          ready.has(provider.id as CliOAuthProvider)
+            ? { ...provider, connected: true, authMode: "cli-oauth" }
+            : provider,
+        ),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const connectedCount = providers.filter(
     (provider) => provider.connected,
