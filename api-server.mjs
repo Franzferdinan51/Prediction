@@ -151,9 +151,9 @@ function nextLine(reader, timeoutMs = 120000) {
   });
 }
 
-async function callLocalMoa(task, context = '') {
+async function callLocalMoa(task, context = '', lmApiToken = '') {
   const command = process.env.LOCAL_MOA_COMMAND || `${ROOT}integrations/local-moa-advisors-mcp/index.js`;
-  const child = spawn(process.execPath, [command], { cwd: ROOT, env: { ...process.env, LM_STUDIO_URL: process.env.LM_STUDIO_URL || 'http://127.0.0.1:1234/v1' }, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [command], { cwd: ROOT, env: { ...process.env, LM_STUDIO_URL: process.env.LM_STUDIO_URL || 'http://127.0.0.1:1234/v1', LM_API_TOKEN: lmApiToken || process.env.LM_API_TOKEN || '' }, stdio: ['pipe', 'pipe', 'pipe'] });
   const reader = { stream: child.stdout, buffer: '' };
   let requestId = 0;
   const send = (method, params = {}) => { const id = ++requestId; child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`); return id; };
@@ -182,7 +182,7 @@ async function runForecast(input) {
     if (input.search !== false) {
       try { const research = await searchWeb({ provider: 'searxng', depth: 'deep', queries: [event, `${event} macro factors`, `${event} latest news`], maxResults: 5 }); researchContext += `\n\nSearch context:\n${research.results.map((item) => `- ${item.title}: ${item.snippet} (${item.url})`).join('\n')}`; } catch (error) { researchContext += `\n\nSearch context unavailable: ${error instanceof Error ? error.message : 'search failed'}`; }
     }
-    const moa = await callLocalMoa(`Produce a calibrated probability forecast for this binary event: ${event}. Resolution deadline: ${deadline}. Include <probability>0-100</probability> and explain evidence and disconfirming signals.`, researchContext);
+    const moa = await callLocalMoa(`Produce a calibrated probability forecast for this binary event: ${event}. Resolution deadline: ${deadline}. Include <probability>0-100</probability> and explain evidence and disconfirming signals.`, researchContext, String(input.provider?.apiKey || ''));
     return { mode, probability: moa.probability, confidence: 'Medium', opinions: [{ provider: 'lmstudio', probability: moa.probability, confidence: 'MoA', reasoning: moa.text, status: moa.status }], summary: moa.text };
   }
   const configured = input.provider || providers.lmstudio;

@@ -117,6 +117,7 @@ cp .env.example .env.local
 | `HERMES_COMMAND` | `hermes` | Override the Hermes executable. |
 | `LOCAL_MOA_COMMAND` | bundled adapter | Override the local MoA MCP entrypoint. |
 | `LM_STUDIO_URL` | `http://127.0.0.1:1234/v1` | LM Studio URL passed to the bundled adapter. |
+| `LM_API_TOKEN` | empty | Optional LM Studio API token for the local MoA adapter when LM Studio token protection is enabled. |
 
 ### Browser environment variables
 
@@ -164,7 +165,7 @@ Runs the bundled [`local-moa-advisors-mcp`](./integrations/local-moa-advisors-mc
 2. Skeptic challenges assumptions and identifies disconfirming signals.
 3. Aggregator produces the final probability and reasoning.
 
-The local MoA route requires the API process and a loaded LM Studio model. It can attach bounded SearXNG research context before the MoA run.
+The local MoA route requires the API process and a loaded LM Studio model. If LM Studio API-token protection is enabled, either enter the token in the LM Studio provider field (the local API forwards it only to the local MoA process) or set `LM_API_TOKEN` for the API process. It can attach bounded SearXNG research context before the MoA run.
 
 ## Search and research
 
