@@ -105,26 +105,28 @@ cp .env.example .env.local
 
 ### Server environment variables
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `SIGNAL_API_PORT` | `8787` | Port for the local API server. |
-| `SIGNAL_API_HOST` | `127.0.0.1` | Bind address. Keep loopback for local use. |
-| `SIGNAL_API_TOKEN` | empty | Bearer token required from non-loopback callers. |
-| `SEARXNG_URL` | `http://127.0.0.1:8080` | SearXNG base URL. |
-| `TAVILY_API_KEY` | empty | Enables Tavily search. |
-| `BRAVE_SEARCH_API_KEY` | empty | Enables Brave Search. |
-| `OPENCLAW_COMMAND` | `openclaw` | Override the OpenClaw executable. |
-| `HERMES_COMMAND` | `hermes` | Override the Hermes executable. |
-| `LOCAL_MOA_COMMAND` | bundled adapter | Override the local MoA MCP entrypoint. |
-| `LM_STUDIO_URL` | `http://127.0.0.1:1234/v1` | LM Studio URL passed to the bundled adapter. |
-| `LM_API_TOKEN` | empty | Optional LM Studio API token for the local MoA adapter when LM Studio token protection is enabled. |
+| Variable               | Default                    | Purpose                                                                                            |
+| ---------------------- | -------------------------- | -------------------------------------------------------------------------------------------------- |
+| `SIGNAL_API_PORT`      | `8787`                     | Port for the local API server.                                                                     |
+| `SIGNAL_API_HOST`      | `127.0.0.1`                | Bind address. Keep loopback for local use.                                                         |
+| `SIGNAL_API_TOKEN`     | empty                      | Bearer token required from non-loopback callers.                                                   |
+| `SEARXNG_URL`          | `http://127.0.0.1:8080`    | SearXNG base URL.                                                                                  |
+| `TAVILY_API_KEY`       | empty                      | Enables Tavily search.                                                                             |
+| `BRAVE_SEARCH_API_KEY` | empty                      | Enables Brave Search.                                                                              |
+| `OPENCLAW_COMMAND`     | `openclaw`                 | Override the OpenClaw executable.                                                                  |
+| `HERMES_COMMAND`       | `hermes`                   | Override the Hermes executable.                                                                    |
+| `LOCAL_MOA_COMMAND`    | bundled adapter            | Override the local MoA MCP entrypoint.                                                             |
+| `LM_STUDIO_URL`        | `http://127.0.0.1:1234/v1` | LM Studio URL passed to the bundled adapter.                                                       |
+| `LM_API_TOKEN`         | empty                      | Optional LM Studio API token for the local MoA adapter when LM Studio token protection is enabled. |
+| `MINIMAX_CLI_COMMAND`  | `mmx`                      | Path to the official MiniMax CLI used for local OAuth-backed forecasts.                            |
+| `GROK_BUILD_COMMAND`   | `grok`                     | Path to the official Grok Build CLI used for local OAuth-backed forecasts.                         |
 
 ### Browser environment variables
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `VITE_SIGNAL_API_URL` | `http://127.0.0.1:8787` | API base URL used by the browser. |
-| `VITE_OPENAI_OAUTH_URL` | empty | Optional OAuth start/callback URL supplied by a separate server. |
+| Variable                | Default                 | Purpose                                                          |
+| ----------------------- | ----------------------- | ---------------------------------------------------------------- |
+| `VITE_SIGNAL_API_URL`   | `http://127.0.0.1:8787` | API base URL used by the browser.                                |
+| `VITE_OPENAI_OAUTH_URL` | empty                   | Optional OAuth start/callback URL supplied by a separate server. |
 
 Vite exposes `VITE_*` values to the browser. Do not put private API keys in a `VITE_*` variable.
 
@@ -134,14 +136,23 @@ Open the **Providers** view in the app. Each provider has an editable endpoint, 
 
 Default configurations:
 
-| Provider | Endpoint | Model | Authentication |
-| --- | --- | --- | --- |
-| LM Studio | `http://localhost:1234/v1` | `local-model` | Usually none; auto-connect uses `/models`. |
-| MiniMax | `https://api.minimax.io/v1` | `MiniMax-M2.7` | API key. |
-| Grok / xAI | `https://api.x.ai/v1` | `grok-3-mini` | API key. |
-| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` | API key or configured OAuth redirect. |
+| Provider   | Endpoint                    | Model          | Authentication                             |
+| ---------- | --------------------------- | -------------- | ------------------------------------------ |
+| LM Studio  | `http://localhost:1234/v1`  | `local-model`  | Usually none; auto-connect uses `/models`. |
+| MiniMax    | `https://api.minimax.io/v1` | `MiniMax-M2.7` | API key or official MiniMax CLI OAuth.     |
+| Grok / xAI | `https://api.x.ai/v1`       | `grok-3-mini`  | API key or official Grok Build CLI OAuth.   |
+| OpenAI     | `https://api.openai.com/v1` | `gpt-4o-mini`  | API key or configured OAuth redirect.      |
 
 The provider adapters use the OpenAI-compatible `/chat/completions` contract. Prompts ask providers to return `<probability>`, `<confidence>`, and `<reasoning>` tags. The app clamps parsed probabilities to 0–100 and keeps each provider opinion visible in the result.
+
+### MiniMax and Grok OAuth through their official CLIs
+
+The app supports provider-owned CLI OAuth without copying access or refresh tokens into browser storage:
+
+- **MiniMax:** install `mmx-cli`, then select **MiniMax OAuth**. The local API starts `mmx auth login --recommend --region=global`, which uses the official PKCE device authorization flow. After completing it in the browser, select **Check OAuth session**.
+- **Grok / xAI:** install Grok Build, then select **Grok OAuth**. The local API starts `grok login --oauth`, which opens the official `auth.x.ai` login. After completion, select **Check OAuth session**.
+
+When a provider is connected through its CLI session, forecast prompts run through that authenticated local CLI instead of direct browser API calls. The app reports only authentication state and never reads, displays, or persists provider OAuth tokens.
 
 ### Demo mode
 
@@ -237,6 +248,19 @@ curl http://127.0.0.1:8787/api/connectors
 ```
 
 The response reports whether the bundled MoA adapter, OpenClaw CLI, and Hermes CLI are available.
+
+### CLI OAuth state and launch
+
+```bash
+curl http://127.0.0.1:8787/api/cli-auth/minimax/status
+curl http://127.0.0.1:8787/api/cli-auth/grok/status
+
+curl -X POST http://127.0.0.1:8787/api/cli-auth/minimax/login \
+  -H 'content-type: application/json' \
+  -d '{"flow":"browser"}'
+```
+
+The status routes expose installation and authentication state only; they do not return credential material. `POST /api/cli-forecast` accepts `{ "provider": "minimax" | "grok", "brief": { ... } }` and runs the forecast through the corresponding authenticated local CLI.
 
 ### Forecast
 
