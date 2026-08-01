@@ -329,6 +329,7 @@ function App() {
             ? research.results
             : [];
           const errors = Array.isArray(research.errors) ? research.errors : [];
+          const visualSources = Array.isArray(research.visualSources) ? research.visualSources : [];
           if (results.length) {
             const sources = results
               .slice(0, 18)
@@ -342,10 +343,17 @@ function App() {
               context: [brief.context, `Fresh research context:\n${sources}`]
                 .filter(Boolean)
                 .join("\n\n"),
+              visualEvidence: visualSources.slice(0, 4),
             };
             addActivity({
               level: "success",
               message: `Deep research attached: ${results.length} source${results.length === 1 ? "" : "s"} from ${research.budget?.uniqueDomains || "multiple"} domain${research.budget?.uniqueDomains === 1 ? "" : "s"}; ${research.budget?.usedQueries || 0} research angles searched.`,
+            });
+            addActivity({
+              level: visualSources.length ? "success" : "info",
+              message: visualSources.length
+                ? `Visual evidence attached: ${visualSources.length} image source${visualSources.length === 1 ? "" : "s"}; vision-capable API models receive up to four images.`
+                : `No visual evidence attached${research.visualError ? `: ${research.visualError}` : "."}`,
             });
           } else if (errors.length) {
             addActivity({

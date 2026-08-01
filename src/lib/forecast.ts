@@ -9,6 +9,7 @@ export type ForecastBrief = {
   questionType?: ForecastQuestionType;
   context?: string;
   resolutionCriteria?: string;
+  visualEvidence?: Array<{ title: string; url: string; imageUrl: string }>;
 };
 
 export type ProviderConfig = {
@@ -254,7 +255,15 @@ async function askProvider(
       body: JSON.stringify({
         model: provider.model,
         temperature: 0.2,
-        messages: [{ role: "user", content: buildPrompt(brief) }],
+        messages: [{
+          role: "user",
+          content: brief.visualEvidence?.length
+            ? [
+                { type: "text", text: `${buildPrompt(brief)}\n\nInspect the supplied visual evidence where supported; use it as corroboration, not proof.` },
+                ...brief.visualEvidence.slice(0, 4).map((item) => ({ type: "image_url", image_url: { url: item.imageUrl } })),
+              ]
+            : buildPrompt(brief),
+        }],
       }),
     },
   );

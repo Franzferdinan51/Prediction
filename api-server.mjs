@@ -263,6 +263,48 @@ async function providerSearch(provider, query, options) {
   throw new Error(`Unknown search provider: ${provider}`);
 }
 
+async function visualSearch(input) {
+  const provider = input.provider || "searxng";
+  const query = `${String(input.event || "").slice(0, 300)} visual evidence maps charts imagery dashboard`;
+  if (!query.trim()) return { sources: [], error: "event is required" };
+  try {
+    if (provider === "searxng") {
+      const baseUrl = String(input.searchConfig?.searxngUrl || SEARXNG_URL).replace(/\/$/, "");
+      const url = new URL(`${baseUrl}/search`);
+      url.searchParams.set("q", query);
+      url.searchParams.set("format", "json");
+      url.searchParams.set("categories", "images");
+      const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!response.ok) throw new Error(`SearXNG image search returned ${response.status}`);
+      const data = await response.json();
+      return {
+        sources: (Array.isArray(data.results) ? data.results : []).slice(0, 8).map((item) => ({
+          title: item.title || "Visual evidence",
+          url: item.url || item.img_src || "",
+          imageUrl: item.img_src || item.thumbnail_src || "",
+          source: provider,
+        })).filter((item) => item.url && item.imageUrl),
+      };
+    }
+    if (provider === "brave") {
+      const apiKey = String(input.searchConfig?.braveApiKey || BRAVE_SEARCH_API_KEY).trim();
+      if (!apiKey) throw new Error("Add a Brave Search API key in Settings → Search providers.");
+      const url = new URL("https://api.search.brave.com/res/v1/images/search");
+      url.searchParams.set("q", query);
+      url.searchParams.set("count", "8");
+      const response = await fetch(url, { headers: { Accept: "application/json", "X-Subscription-Token": apiKey }, signal: AbortSignal.timeout(15000) });
+      if (!response.ok) throw new Error(`Brave image search returned ${response.status}`);
+      const data = await response.json();
+      return {
+        sources: (data.results || []).slice(0, 8).map((item) => ({ title: item.title || "Visual evidence", url: item.source || item.url || "", imageUrl: item.thumbnail?.src || item.properties?.url || "", source: provider })).filter((item) => item.url && item.imageUrl),
+      };
+    }
+    return { sources: [], error: "Tavily does not expose image search through this connector; choose SearXNG or Brave for visual evidence." };
+  } catch (error) {
+    return { sources: [], error: searchErrorMessage(provider, error) };
+  }
+}
+
 async function searchWeb(input) {
   const provider = input.provider || "searxng";
   const depth = input.depth === "deep" ? "deep" : "quick";
@@ -956,11 +998,8 @@ const server = http.createServer(async (req, res) => {
     if (path === "/api/cli-forecast")
       return json(res, 200, await runCliForecast(input));
     if (path === "/api/search") return json(res, 200, await searchWeb(input));
-    if (path === "/api/research")
-      return json(
-        res,
-        200,
-        await searchWeb({
+    if (path === "/api/research") {
+      const researchInput = {
           ...input,
           provider: input.provider || "searxng",
           depth: input.depth || "deep",
@@ -972,8 +1011,10 @@ const server = http.createServer(async (req, res) => {
             `${input.event} risks, counterarguments, and disconfirming evidence`,
             `${input.event} scenarios, leading indicators, and forecast signals`,
           ],
-        }),
-      );
+        };
+      const [research, visual] = await Promise.all([searchWeb(researchInput), visualSearch(researchInput)]);
+      return json(res, 200, { ...research, visualSources: visual.sources, visualError: visual.error });
+    }
     if (path === "/api/agent/openclaw")
       return json(res, 200, await runAgent("openclaw", input));
     if (path === "/api/agent/hermes")
