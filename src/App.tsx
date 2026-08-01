@@ -3,6 +3,7 @@ import {
   defaultProviders,
   type ForecastBrief,
   type ForecastMode,
+  type ForecastProgress,
   type ForecastQuestionType,
   type ForecastResult,
   type ProviderConfig,
@@ -37,6 +38,7 @@ type HistoryItem = {
   createdAt: string;
   pinned: boolean;
 };
+type ActivityItem = ForecastProgress & { id: string; at: string };
 
 function storedProviders(): ProviderConfig[] {
   try {
@@ -142,6 +144,7 @@ function App() {
   >({});
   const [searchConfig, setSearchConfig] =
     useState<SearchConfig>(storedSearchConfig);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -210,6 +213,17 @@ function App() {
     localStorage.setItem("signal-search-config", JSON.stringify(searchConfig));
     setNotice("Search provider settings saved locally in this browser.");
   };
+  const addActivity = (entry: ForecastProgress) =>
+    setActivity((current) =>
+      [
+        ...current,
+        {
+          ...entry,
+          id: `${Date.now()}-${Math.random()}`,
+          at: new Date().toLocaleTimeString(),
+        },
+      ].slice(-80),
+    );
   const recordForecast = (forecast: ForecastResult) =>
     setHistory((current) => {
       const next = [
@@ -274,6 +288,7 @@ function App() {
       );
       return;
     }
+    setActivity([]);
     setRunning(true);
     setNotice(
       demoMode
@@ -285,21 +300,93 @@ function App() {
             : `Querying ${connectedCount} connected provider${connectedCount === 1 ? "" : "s"}…`,
     );
     try {
-      const forecast = await runForecast(brief, providers, demoMode, {
+      let briefForRun = brief;
+      if (demoMode) {
+        addActivity({
+          level: "info",
+          message:
+            "Demo mode: using deterministic sample opinions; research is skipped.",
+        });
+      } else {
+        addActivity({
+          level: "info",
+          message: `Researching context with ${searchConfig.provider === "searxng" ? "SearXNG" : searchConfig.provider}…`,
+        });
+        try {
+          const response = await fetch(`${API_BASE}/api/research`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              event: brief.question,
+              provider: searchConfig.provider,
+              depth: "quick",
+              maxResults: 4,
+              searchConfig,
+            }),
+          });
+          const research = await response.json();
+          const results = Array.isArray(research.results)
+            ? research.results
+            : [];
+          const errors = Array.isArray(research.errors) ? research.errors : [];
+          if (results.length) {
+            const sources = results
+              .slice(0, 8)
+              .map(
+                (item: { title?: string; snippet?: string; url?: string }) =>
+                  `- ${item.title || "Source"}: ${item.snippet || ""} (${item.url || ""})`,
+              )
+              .join("\n");
+            briefForRun = {
+              ...brief,
+              context: [brief.context, `Fresh research context:\n${sources}`]
+                .filter(Boolean)
+                .join("\n\n"),
+            };
+            addActivity({
+              level: "success",
+              message: `Research attached: ${results.length} source${results.length === 1 ? "" : "s"}.`,
+            });
+          } else if (errors.length) {
+            addActivity({
+              level: "error",
+              message: `Research unavailable: ${errors[0].error || "provider returned no results"}`,
+            });
+          } else {
+            addActivity({
+              level: "info",
+              message:
+                "Research returned no sources; continuing with your brief.",
+            });
+          }
+        } catch (error) {
+          addActivity({
+            level: "error",
+            message:
+              error instanceof Error
+                ? `Research request failed: ${error.message}`
+                : "Research request failed.",
+          });
+        }
+      }
+      const forecast = await runForecast(briefForRun, providers, demoMode, {
         mode: forecastMode,
         providerId: singleProvider,
         apiBase: API_BASE,
         searchConfig,
+        onProgress: addActivity,
       });
       setResult(forecast);
       recordForecast(forecast);
       setNotice(
         "Forecast updated just now. Read the thesis, counter-signals, and update triggers below.",
       );
+      addActivity({ level: "success", message: "Forecast run complete." });
     } catch (error) {
-      setNotice(
-        error instanceof Error ? error.message : "Unable to run forecast.",
-      );
+      const message =
+        error instanceof Error ? error.message : "Unable to run forecast.";
+      setNotice(message);
+      addActivity({ level: "error", message });
     } finally {
       setRunning(false);
     }
@@ -667,6 +754,7 @@ function App() {
                 onManage={() => setActiveView("Providers")}
               />
             </section>
+            <ActivityLog activity={activity} running={running} />
             <ResultView
               result={displayed}
               providers={providers}
@@ -679,6 +767,43 @@ function App() {
         )}
       </main>
     </div>
+  );
+}
+
+function ActivityLog({
+  activity,
+  running,
+}: {
+  activity: ActivityItem[];
+  running: boolean;
+}) {
+  return (
+    <section className="activity-log panel" aria-live="polite">
+      <div className="activity-head">
+        <span className="section-label">Run log</span>
+        <span className={running ? "connection live" : "connection"}>
+          {running ? "Running" : "Ready"}
+        </span>
+      </div>
+      {activity.length ? (
+        <div className="activity-items">
+          {activity.map((entry) => (
+            <div className={`activity-item ${entry.level}`} key={entry.id}>
+              <time>{entry.at}</time>
+              <span>
+                {entry.provider ? `${entry.provider} · ` : ""}
+                {entry.message}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="activity-empty">
+          The next run will show research, provider responses, and actionable
+          errors here.
+        </p>
+      )}
+    </section>
   );
 }
 

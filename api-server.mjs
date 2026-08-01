@@ -2,8 +2,9 @@ import http from "node:http";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { spawn } from "node:child_process";
-import { access } from "node:fs/promises";
-import { homedir } from "node:os";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 
 const execFileAsync = promisify(execFile);
 const PORT = Number(process.env.SIGNAL_API_PORT || 8787);
@@ -760,11 +761,17 @@ async function runCliForecast(input) {
       { status: 429 },
     );
   agentInFlight.add(`cli-${provider}`);
+  let outputDirectory = "";
   try {
     const prompt = cliForecastPrompt(input.brief || {});
     const model = String(input.model || "")
       .trim()
       .slice(0, 160);
+    if (provider === "openai")
+      outputDirectory = await mkdtemp(join(tmpdir(), "signal-codex-"));
+    const outputPath = outputDirectory
+      ? join(outputDirectory, "final.txt")
+      : "";
     const args =
       provider === "minimax"
         ? [
@@ -790,6 +797,8 @@ async function runCliForecast(input) {
               "--sandbox",
               "read-only",
               "--skip-git-repo-check",
+              "--output-last-message",
+              outputPath,
               ...(model && model !== "codex-default" ? ["--model", model] : []),
               prompt,
             ];
@@ -797,12 +806,23 @@ async function runCliForecast(input) {
       timeout: 120000,
       maxBuffer: 2 * 1024 * 1024,
     });
+    const finalOutput = outputPath
+      ? await readFile(outputPath, "utf8").catch(
+          () => result.stdout || result.stderr || "",
+        )
+      : result.stdout || result.stderr || "";
+    if (!String(finalOutput).trim())
+      throw new Error(
+        `${provider} CLI finished without a readable final response.`,
+      );
     return {
       provider,
-      output: cliForecastOutput(provider, result.stdout),
+      output: cliForecastOutput(provider, finalOutput),
     };
   } finally {
     agentInFlight.delete(`cli-${provider}`);
+    if (outputDirectory)
+      await rm(outputDirectory, { recursive: true, force: true });
   }
 }
 

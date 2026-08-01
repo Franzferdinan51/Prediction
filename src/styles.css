@@ -362,6 +362,50 @@ select:focus {
   margin: 16px auto 0;
   padding: 16px;
 }
+.activity-log {
+  max-width: 1150px;
+  margin: 16px auto 0;
+  padding: 14px 16px;
+}
+.activity-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #253b4b;
+}
+.activity-items {
+  display: grid;
+  gap: 7px;
+  max-height: 230px;
+  overflow: auto;
+  padding-top: 12px;
+}
+.activity-item {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  gap: 10px;
+  color: #cbd8e2;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.activity-item time {
+  color: #8397a9;
+  font:
+    11px "DM Mono",
+    monospace;
+}
+.activity-item.success span {
+  color: var(--lime);
+}
+.activity-item.error span {
+  color: #ffaaa5;
+}
+.activity-empty {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
 .result-head {
   display: flex;
   justify-content: space-between;
@@ -705,6 +749,10 @@ select:focus {
   }
 }
 @media (max-width: 640px) {
+  .activity-item {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
   .brief-guide {
     align-items: flex-start;
     flex-direction: column;

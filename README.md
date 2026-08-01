@@ -175,6 +175,15 @@ MiniMax CLI JSON output is normalized before the app parses the requested XML
 tags. For the best results, preserve the guided question, horizon, resolution
 criteria, and context structure, then edit it with your own evidence.
 
+### Research and run diagnostics
+
+Every live forecast starts with a bounded research pre-pass using the selected
+search provider. Returned sources are appended to the provider brief as fresh
+context. The **Run log** shows the research result, each provider request and
+response, plus actionable errors. Failed provider responses are excluded from
+the aggregate; if every selected provider fails, the app stops with an error
+instead of displaying a fabricated 50% forecast.
+
 ### Search providers
 
 Open **Settings → Search providers** to configure research. The configuration is

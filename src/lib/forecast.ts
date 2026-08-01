@@ -64,6 +64,12 @@ export type ForecastResult = {
   readout: ForecastReadout;
 };
 
+export type ForecastProgress = {
+  level: "info" | "success" | "error";
+  message: string;
+  provider?: ProviderId;
+};
+
 export type ProviderProbe = {
   ok: boolean;
   models: string[];
@@ -254,10 +260,10 @@ async function askProvider(
     throw new Error(
       textFromError(response.status, await response.json().catch(() => null)),
     );
-  return parseOpinion(
-    provider.id,
-    (await response.json()).choices?.[0]?.message?.content || "",
-  );
+  const text = (await response.json()).choices?.[0]?.message?.content || "";
+  if (!String(text).trim())
+    throw new Error(`${provider.name} returned an empty forecast response.`);
+  return parseOpinion(provider.id, text);
 }
 
 async function askCliProvider(
@@ -278,7 +284,11 @@ async function askCliProvider(
   const data = await response.json().catch(() => ({}));
   if (!response.ok)
     throw new Error(data.error || `${provider.name} CLI forecast failed.`);
-  return parseOpinion(provider.id, data.output || "");
+  if (!String(data.output || "").trim())
+    throw new Error(
+      `${provider.name} returned an empty CLI forecast response.`,
+    );
+  return parseOpinion(provider.id, data.output);
 }
 
 export async function probeProvider(
@@ -402,9 +412,11 @@ export async function runForecast(
     providerId?: ProviderId;
     apiBase?: string;
     searchConfig?: SearchConfig;
+    onProgress?: (progress: ForecastProgress) => void;
   } = {},
 ): Promise<ForecastResult> {
   const mode = options.mode || "ensemble";
+  const progress = options.onProgress || (() => undefined);
   if (!demoMode && mode === "local-moa") {
     const lmStudio = providers.find((provider) => provider.id === "lmstudio");
     const response = await fetch(
@@ -503,27 +515,39 @@ export async function runForecast(
         }))
     : await Promise.all(
         selected.map(async (provider) => {
+          progress({
+            level: "info",
+            provider: provider.id,
+            message: `Sending full brief to ${provider.name} (${provider.model})…`,
+          });
           try {
-            return provider.authMode === "cli-oauth"
-              ? await askCliProvider(
-                  provider,
-                  brief,
-                  options.apiBase ||
-                    import.meta.env.VITE_SIGNAL_API_URL ||
-                    "http://127.0.0.1:8787",
-                )
-              : await askProvider(provider, brief);
+            const opinion =
+              provider.authMode === "cli-oauth"
+                ? await askCliProvider(
+                    provider,
+                    brief,
+                    options.apiBase ||
+                      import.meta.env.VITE_SIGNAL_API_URL ||
+                      "http://127.0.0.1:8787",
+                  )
+                : await askProvider(provider, brief);
+            progress({
+              level: "success",
+              provider: provider.id,
+              message: `${provider.name} returned ${opinion.probability}%${opinion.answer ? ` · ${opinion.answer}` : ""}.`,
+            });
+            return opinion;
           } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "Unknown provider error";
+            progress({ level: "error", provider: provider.id, message });
             return {
               provider: provider.id,
               probability: 50,
               confidence: "Unavailable",
               reasoning: "Provider did not return a forecast.",
               status: "error" as const,
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Unknown provider error",
+              error: message,
             };
           }
         }),
@@ -532,7 +556,14 @@ export async function runForecast(
     throw new Error(
       "No providers are connected. Connect a provider or enable demo fallback.",
     );
-  const usable = opinions.length ? opinions : demoOpinions;
+  const successfulOpinions = opinions.filter(
+    (opinion) => opinion.status !== "error",
+  );
+  if (!demoMode && !successfulOpinions.length)
+    throw new Error(
+      "All selected providers failed to return a readable forecast. See the Run log for each provider error.",
+    );
+  const usable = successfulOpinions.length ? successfulOpinions : demoOpinions;
   const probability = Math.round(
     usable.reduce((sum, opinion) => sum + opinion.probability, 0) /
       usable.length,
