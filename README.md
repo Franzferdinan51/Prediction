@@ -155,12 +155,25 @@ forecast. This gives each authenticated CLI a real model dropdown:
 - Grok: click **Grok OAuth**, check the session, and click **Load models** to
   populate the dropdown from `grok models`.
 - OpenAI: click **ChatGPT OAuth** to run `codex login`, check the session, and
-  choose **Codex CLI default**. OpenAI's Platform API itself continues to use
-  API keys; the OAuth path is for the local Codex/ChatGPT session.
+  choose **Codex CLI default** or a GPT-5.6, GPT-5.5, GPT-5.4, GPT-5.4 mini,
+  or other supported text/reasoning model. OpenAI's Platform API itself
+  continues to use API keys; the OAuth path is for the local Codex/ChatGPT
+  session.
 
 The separate **Settings** view controls forecast strategy, the default single
 provider, and demo fallback. It is deliberately separate from **Providers**,
 which holds endpoint, model, API-key, OAuth, and model-list controls.
+
+### Guided forecast input and provider output
+
+The Forecast view keeps its full free-form brief while adding a **Load guided
+example** action for each forecast type. It loads an editable, structured brief
+for binary, timing, numeric, or scenario forecasts so providers receive clear
+resolution criteria and response instructions.
+
+MiniMax CLI JSON output is normalized before the app parses the requested XML
+tags. For the best results, preserve the guided question, horizon, resolution
+criteria, and context structure, then edit it with your own evidence.
 
 ### Search providers
 

@@ -169,6 +169,33 @@ header p {
   margin: 18px 0 18px;
   outline: none;
 }
+.brief-guide {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin: 14px 0 0;
+  padding: 11px 13px;
+  border: 1px solid #294154;
+  border-radius: 6px;
+  background: #0c1d2b;
+}
+.brief-guide > div {
+  display: grid;
+  gap: 4px;
+}
+.brief-guide strong {
+  font-size: 13px;
+}
+.brief-guide span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.brief-guide button {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+}
 .composer textarea:focus,
 input:focus,
 select:focus {
@@ -678,6 +705,10 @@ select:focus {
   }
 }
 @media (max-width: 640px) {
+  .brief-guide {
+    align-items: flex-start;
+    flex-direction: column;
+  }
   header {
     display: block;
   }

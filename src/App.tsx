@@ -87,6 +87,40 @@ function storedSearchConfig(): SearchConfig {
   }
 }
 
+function guidedExample(questionType: ForecastQuestionType): ForecastBrief {
+  if (questionType === "timing")
+    return {
+      question: "When will the Iran war end?",
+      questionType,
+      deadline: "December 31, 2028",
+      resolutionCriteria:
+        "Resolve when a durable, publicly confirmed cessation of major hostilities is in effect. Return the most likely month, quarter, or date window.",
+      context:
+        "Weigh diplomatic negotiations, military escalation, external support, domestic political constraints, and comparable conflict durations.",
+    };
+  if (questionType === "numeric")
+    return {
+      question: "What will US CPI inflation be in December 2027?",
+      questionType,
+      deadline: "December 31, 2027",
+      resolutionCriteria:
+        "Return the most likely year-over-year CPI range, in percentage points.",
+      context: "Weigh energy, shelter, labor, fiscal policy, and base effects.",
+    };
+  if (questionType === "categorical")
+    return {
+      question:
+        "Which of three scenarios is most likely for global growth in 2027: soft landing, recession, or re-acceleration?",
+      questionType,
+      deadline: "December 31, 2027",
+      resolutionCriteria:
+        "Choose one scenario and state the observable criteria that would identify it.",
+      context:
+        "Weigh monetary policy, labor markets, energy, trade, and financial conditions.",
+    };
+  return initialBrief;
+}
+
 function App() {
   const [brief, setBrief] = useState<ForecastBrief>(initialBrief);
   const [providers, setProviders] = useState<ProviderConfig[]>(storedProviders);
@@ -414,6 +448,36 @@ function App() {
               <div className="composer panel">
                 <div className="section-label">
                   Forecast brief <span>{brief.question.length} / 6000</span>
+                </div>
+                <div className="brief-guide">
+                  <div>
+                    <strong>
+                      {brief.questionType === "timing"
+                        ? "For “when” questions"
+                        : brief.questionType === "numeric"
+                          ? "For numeric questions"
+                          : brief.questionType === "categorical"
+                            ? "For scenario questions"
+                            : "For Yes / No questions"}
+                    </strong>
+                    <span>
+                      {brief.questionType === "timing"
+                        ? "Define what counts as the event ending, set a horizon, then ask for a month, quarter, or date window."
+                        : brief.questionType === "numeric"
+                          ? "Name the metric, units, geography, and the range you want estimated."
+                          : brief.questionType === "categorical"
+                            ? "List the competing outcomes and define how each will be recognized."
+                            : "State one observable event and define exactly what resolves Yes and No."}
+                    </span>
+                  </div>
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      setBrief(guidedExample(brief.questionType || "binary"))
+                    }
+                  >
+                    Load guided example
+                  </button>
                 </div>
                 <textarea
                   aria-label="Forecast question"
@@ -862,6 +926,14 @@ function ProviderSettings({
                     reasoning catalog. Codex verifies plan-specific access when
                     the forecast runs; use an API key and <b>Test API key</b>
                     for the exact account-enabled API list.
+                  </p>
+                )}
+              {provider.id === "minimax" &&
+                provider.authMode === "cli-oauth" && (
+                  <p className="oauth-note">
+                    MiniMax responses are normalized before parsing. For the
+                    clearest forecast, use the guided brief and keep the
+                    requested XML response format intact.
                   </p>
                 )}
               {providerIssues[provider.id] && (

@@ -620,6 +620,16 @@ async function cliModels(provider) {
   if (provider === "openai")
     return [
       "codex-default",
+      "gpt-5.6",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.5",
+      "gpt-5.5-pro",
+      "gpt-5.4",
+      "gpt-5.4-pro",
+      "gpt-5.4-mini",
+      "gpt-5.4-nano",
       "gpt-5.2",
       "gpt-5.1",
       "gpt-5",
@@ -651,6 +661,23 @@ async function cliModels(provider) {
       ),
       { status: 502 },
     );
+  }
+}
+
+function cliForecastOutput(provider, output) {
+  const raw = String(output || "").trim();
+  if (provider !== "minimax") return raw;
+  try {
+    const payload = JSON.parse(raw);
+    return (
+      textFromCompletion(payload) ||
+      payload?.data?.content ||
+      payload?.data?.text ||
+      payload?.output_text ||
+      raw
+    );
+  } catch {
+    return raw;
   }
 }
 
@@ -770,7 +797,10 @@ async function runCliForecast(input) {
       timeout: 120000,
       maxBuffer: 2 * 1024 * 1024,
     });
-    return { provider, output: result.stdout.trim() };
+    return {
+      provider,
+      output: cliForecastOutput(provider, result.stdout),
+    };
   } finally {
     agentInFlight.delete(`cli-${provider}`);
   }
