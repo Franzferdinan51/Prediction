@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+
+# Local source/reference checkouts used during development.
+council-source/
+integrations/GL4SS/
+
+# Keep only the bundled MoA adapter entrypoint and license/docs in the app repo.
+integrations/local-moa-advisors-mcp/package-lock.json
+integrations/local-moa-advisors-mcp/package.json
+integrations/local-moa-advisors-mcp/.gitignore
