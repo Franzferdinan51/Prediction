@@ -51,7 +51,7 @@ const providers = {
     id: "openai",
     name: "OpenAI",
     endpoint: "https://api.openai.com/v1",
-    model: "gpt-4o-mini",
+    model: "codex-default",
   },
 };
 
@@ -796,6 +796,12 @@ async function runCliForecast(input) {
       if (availableModels.length && !availableModels.includes(model))
         model = availableModels[0];
     }
+    if (provider === "openai") {
+      const availableModels = await cliModels("openai");
+      // Saved API-only IDs such as gpt-4o-mini are not reliable through
+      // ChatGPT OAuth. Let Codex select the account-approved default instead.
+      if (!availableModels.includes(model)) model = "codex-default";
+    }
     if (provider === "openai")
       outputDirectory = await mkdtemp(join(tmpdir(), "signal-codex-"));
     const outputPath = outputDirectory
@@ -836,7 +842,10 @@ async function runCliForecast(input) {
               prompt,
             ];
     const result = await execFileAsync(cliCommands[provider], args, {
-      timeout: 120000,
+      // Codex may spend longer on its first ChatGPT-OAuth request and on the
+      // deliberately detailed forecast prompt. Do not turn that into a blank
+      // result while shorter CLI providers remain tightly bounded.
+      timeout: provider === "openai" ? 300000 : 120000,
       maxBuffer: 2 * 1024 * 1024,
     });
     const finalOutput = outputPath

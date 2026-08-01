@@ -108,7 +108,7 @@ export const defaultProviders: ProviderConfig[] = [
     id: "openai",
     name: "OpenAI",
     endpoint: "https://api.openai.com/v1",
-    model: "gpt-4o-mini",
+    model: "codex-default",
     apiKey: "",
     connected: false,
   },
