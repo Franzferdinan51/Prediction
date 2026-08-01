@@ -1,9 +1,12 @@
 export type ProviderId = "lmstudio" | "minimax" | "grok" | "openai";
 export type ForecastMode = "ensemble" | "single" | "local-moa";
+export type ForecastQuestionType =
+  "binary" | "timing" | "numeric" | "categorical";
 
 export type ForecastBrief = {
   question: string;
   deadline: string;
+  questionType?: ForecastQuestionType;
   context?: string;
   resolutionCriteria?: string;
 };
@@ -38,6 +41,7 @@ export type ForecastOpinion = {
   provider: ProviderId;
   probability: number;
   confidence: string;
+  answer?: string;
   reasoning: string;
   status: "live" | "demo" | "error";
   error?: string;
@@ -47,6 +51,8 @@ export type ForecastOpinion = {
 export type ForecastResult = {
   probability: number;
   confidence: string;
+  questionType: ForecastQuestionType;
+  answer: string;
   confidenceRange: [number, number];
   summary: string;
   timeline: string;
@@ -162,9 +168,19 @@ function textFromError(status: number, payload: unknown): string {
 }
 
 function buildPrompt(brief: ForecastBrief): string {
+  const questionType = brief.questionType || "binary";
+  const answerInstruction =
+    questionType === "timing"
+      ? "Give the most likely month, quarter, or date window in <forecast_answer>."
+      : questionType === "numeric"
+        ? "Give the most likely numeric range with units in <forecast_answer>."
+        : questionType === "categorical"
+          ? "Give the most likely outcome or scenario in <forecast_answer>."
+          : "Give Yes or No in <forecast_answer>.";
   return [
     "You are a calibrated superforecaster. Analyze the event precisely and avoid pretending uncertain evidence is certain.",
     `Question:\n${brief.question.trim()}`,
+    `Question type: ${questionType}`,
     `Resolution deadline: ${brief.deadline}`,
     brief.resolutionCriteria?.trim()
       ? `Resolution criteria:\n${brief.resolutionCriteria.trim()}`
@@ -172,7 +188,7 @@ function buildPrompt(brief: ForecastBrief): string {
     brief.context?.trim()
       ? `Context, constraints, and known evidence:\n${brief.context.trim()}`
       : "",
-    "Return XML only. Be concise but substantive. Use <probability>0-100</probability>, <confidence>High|Medium|Low</confidence>, <reasoning>a nuanced 3-6 sentence readout</reasoning>, <drivers>semicolon-separated key drivers</drivers>, <counter_signals>semicolon-separated disconfirming signals</counter_signals>, <update_triggers>semicolon-separated facts that would change the estimate</update_triggers>, and <assumptions>semicolon-separated assumptions</assumptions>.",
+    `Return XML only. ${answerInstruction} Use <probability>0-100</probability> for confidence that the central answer is correct, <confidence>High|Medium|Low</confidence>, <reasoning>a nuanced 3-6 sentence readout</reasoning>, <drivers>semicolon-separated key drivers</drivers>, <counter_signals>semicolon-separated disconfirming signals</counter_signals>, <update_triggers>semicolon-separated facts that would change the estimate</update_triggers>, and <assumptions>semicolon-separated assumptions</assumptions>.`,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -190,6 +206,7 @@ function parseOpinion(provider: ProviderId, text: string): ForecastOpinion {
       Math.min(100, Number.parseInt(rawProbability, 10) || 50),
     ),
     confidence: extractTag(text, "confidence") || "Medium",
+    answer: extractTag(text, "forecast_answer") || extractTag(text, "answer"),
     reasoning:
       extractTag(text, "reasoning") ||
       extractTag(text, "summary") ||
@@ -317,10 +334,14 @@ function defaultReadout(
       ),
   );
   const readout = firstWithReadout?.readout;
+  const questionType = brief.questionType || "binary";
+  const centralAnswer = aggregateAnswer(brief, opinions);
   return {
     thesis:
       firstWithReadout?.reasoning ||
-      `${probability}% is the current aggregate likelihood for this event before ${brief.deadline}.`,
+      (questionType === "binary"
+        ? `${probability}% is the current aggregate likelihood for this event before ${brief.deadline}.`
+        : `${centralAnswer} is the central forecast, with ${probability}% confidence before ${brief.deadline}.`),
     drivers: readout?.drivers?.length
       ? readout.drivers
       : [
@@ -349,6 +370,29 @@ function defaultReadout(
   };
 }
 
+function aggregateAnswer(brief: ForecastBrief, opinions: ForecastOpinion[]) {
+  const answers = opinions
+    .map((opinion) => opinion.answer?.trim())
+    .filter((answer): answer is string => Boolean(answer));
+  if (answers.length) {
+    const frequency = new Map<string, number>();
+    answers.forEach((answer) =>
+      frequency.set(answer, (frequency.get(answer) || 0) + 1),
+    );
+    return [...frequency.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  }
+  return (brief.questionType || "binary") === "binary"
+    ? "No central answer returned"
+    : "No central window returned";
+}
+
+function demoAnswer(questionType: ForecastQuestionType) {
+  if (questionType === "timing") return "July–December 2027 (demo window)";
+  if (questionType === "numeric") return "45–55 (demo range)";
+  if (questionType === "categorical") return "Base-case scenario (demo)";
+  return "Yes";
+}
+
 export async function runForecast(
   brief: ForecastBrief,
   providers: ProviderConfig[],
@@ -371,6 +415,7 @@ export async function runForecast(
         body: JSON.stringify({
           mode,
           event: brief.question,
+          questionType: brief.questionType || "binary",
           deadline: brief.deadline,
           context: [
             brief.resolutionCriteria &&
@@ -406,12 +451,18 @@ export async function runForecast(
       provider: "lmstudio",
       probability: remote.probability,
       confidence: remote.confidence || "Medium",
+      answer: remote.answer || remote.opinions?.[0]?.answer,
       reasoning: remote.summary || "Local MoA forecast returned.",
       status: remote.opinions?.[0]?.status || "live",
     };
     return {
       probability: remote.probability,
       confidence: remote.confidence || "Medium",
+      questionType: brief.questionType || "binary",
+      answer:
+        remote.answer ||
+        remote.opinions?.[0]?.answer ||
+        "Local MoA answer pending",
       confidenceRange: [
         Math.max(0, remote.probability - 16),
         Math.min(100, remote.probability + 16),
@@ -437,12 +488,19 @@ export async function runForecast(
           (provider) => provider.id === (options.providerId || "lmstudio"),
         )
       : providers.filter((provider) => provider.connected);
+  const questionType = brief.questionType || "binary";
   const opinions = demoMode
     ? mode === "single"
-      ? demoOpinions.filter(
-          (opinion) => opinion.provider === (options.providerId || "lmstudio"),
-        )
-      : demoOpinions
+      ? demoOpinions
+          .filter(
+            (opinion) =>
+              opinion.provider === (options.providerId || "lmstudio"),
+          )
+          .map((opinion) => ({ ...opinion, answer: demoAnswer(questionType) }))
+      : demoOpinions.map((opinion) => ({
+          ...opinion,
+          answer: demoAnswer(questionType),
+        }))
     : await Promise.all(
         selected.map(async (provider) => {
           try {
@@ -484,9 +542,12 @@ export async function runForecast(
     Math.min(...usable.map((opinion) => opinion.probability));
   const confidence = spread <= 10 ? "High" : spread <= 22 ? "Medium" : "Low";
   const readout = defaultReadout(brief, usable, probability);
+  const answer = aggregateAnswer(brief, usable);
   return {
     probability,
     confidence,
+    questionType,
+    answer,
     confidenceRange: [
       Math.max(
         0,
@@ -499,7 +560,10 @@ export async function runForecast(
           (confidence === "High" ? 10 : confidence === "Medium" ? 16 : 24),
       ),
     ],
-    summary: `${probability}% aggregate likelihood before ${brief.deadline}. The council is ${confidence.toLowerCase()} confidence because provider estimates span ${Math.min(...usable.map((opinion) => opinion.probability))}–${Math.max(...usable.map((opinion) => opinion.probability))}%.`,
+    summary:
+      questionType === "binary"
+        ? `${probability}% aggregate likelihood before ${brief.deadline}. The council is ${confidence.toLowerCase()} confidence because provider estimates span ${Math.min(...usable.map((opinion) => opinion.probability))}–${Math.max(...usable.map((opinion) => opinion.probability))}%.`
+        : `${probability}% confidence in the central forecast: ${answer}. The council is ${confidence.toLowerCase()} confidence because provider estimates span ${Math.min(...usable.map((opinion) => opinion.probability))}–${Math.max(...usable.map((opinion) => opinion.probability))}%.`,
     timeline: `Resolution by ${brief.deadline}`,
     bestCase:
       readout.drivers[0] ||

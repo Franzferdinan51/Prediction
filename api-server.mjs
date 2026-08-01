@@ -109,6 +109,14 @@ function parseProbability(text) {
   return Math.max(0, Math.min(100, Number(tag || prose || 50)));
 }
 
+function parseForecastAnswer(text) {
+  return (
+    text
+      .match(/<forecast_answer>\s*([\s\S]*?)\s*<\/forecast_answer>/i)?.[1]
+      ?.trim() || ""
+  );
+}
+
 async function providerForecast(provider, event, deadline) {
   const endpoint = (provider.endpoint || "").replace(/\/$/, "");
   const response = await fetch(`${endpoint}/chat/completions`, {
@@ -410,11 +418,21 @@ async function runForecast(input) {
   const deadline = String(input.deadline || "not specified");
   if (!event) throw new Error("event is required");
   const mode = input.mode || "single";
+  const questionType = input.questionType || "binary";
   if (input.demo === true)
     return {
       mode: "demo",
       probability: 68,
       confidence: "Medium",
+      questionType,
+      answer:
+        questionType === "timing"
+          ? "July–December 2027 (demo window)"
+          : questionType === "numeric"
+            ? "45–55 (demo range)"
+            : questionType === "categorical"
+              ? "Base-case scenario (demo)"
+              : "Yes",
       opinions: [
         {
           provider: "lmstudio",
@@ -464,13 +482,14 @@ async function runForecast(input) {
       }
     }
     const moa = await callLocalMoa(
-      `Produce a calibrated probability forecast for this binary event: ${event}. Resolution deadline: ${deadline}. Include <probability>0-100</probability> and explain evidence and disconfirming signals.`,
+      `Produce a calibrated ${questionType} forecast: ${event}. Resolution deadline: ${deadline}. Return <forecast_answer> with the most likely ${questionType === "timing" ? "date or date window" : questionType === "numeric" ? "numeric range" : questionType === "categorical" ? "outcome" : "Yes or No answer"}, <probability>0-100</probability> for confidence in that answer, and explain evidence and disconfirming signals.`,
       researchContext,
       String(input.provider?.apiKey || ""),
     );
     return {
       mode,
       probability: moa.probability,
+      answer: parseForecastAnswer(moa.text),
       confidence: "Medium",
       opinions: [
         {
@@ -666,15 +685,25 @@ function startCliOAuth(provider, flow = "browser") {
 }
 
 function cliForecastPrompt(brief) {
+  const questionType = String(brief.questionType || "binary");
+  const answerInstruction =
+    questionType === "timing"
+      ? "Return the most likely date or date window in <forecast_answer>."
+      : questionType === "numeric"
+        ? "Return the most likely numeric range with units in <forecast_answer>."
+        : questionType === "categorical"
+          ? "Return the most likely outcome in <forecast_answer>."
+          : "Return Yes or No in <forecast_answer>.";
   return [
     "You are a calibrated superforecaster. Return XML only.",
     `Question: ${String(brief.question || "").slice(0, 6000)}`,
+    `Question type: ${questionType}`,
     `Deadline: ${String(brief.deadline || "not specified").slice(0, 120)}`,
     brief.resolutionCriteria
       ? `Resolution criteria: ${String(brief.resolutionCriteria).slice(0, 2000)}`
       : "",
     brief.context ? `Context: ${String(brief.context).slice(0, 4000)}` : "",
-    "Include <probability>0-100</probability>, <confidence>High|Medium|Low</confidence>, <reasoning>3-6 nuanced sentences</reasoning>, <drivers>semicolon-separated drivers</drivers>, <counter_signals>semicolon-separated counter-signals</counter_signals>, <update_triggers>semicolon-separated update triggers</update_triggers>, and <assumptions>semicolon-separated assumptions</assumptions>.",
+    `${answerInstruction} Include <probability>0-100</probability> for confidence in the central answer, <confidence>High|Medium|Low</confidence>, <reasoning>3-6 nuanced sentences</reasoning>, <drivers>semicolon-separated drivers</drivers>, <counter_signals>semicolon-separated counter-signals</counter_signals>, <update_triggers>semicolon-separated update triggers</update_triggers>, and <assumptions>semicolon-separated assumptions</assumptions>.`,
   ]
     .filter(Boolean)
     .join("\n\n");

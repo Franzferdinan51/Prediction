@@ -1050,7 +1050,7 @@ select:focus {
 }
 .brief-grid {
   display: grid;
-  grid-template-columns: 1fr 1.6fr;
+  grid-template-columns: 0.8fr 0.9fr 1.6fr;
   gap: 14px;
   margin: 2px 0 14px;
 }
@@ -1115,6 +1115,20 @@ select:focus {
   font-size: 14px;
   line-height: 1.55;
   margin: 24px 0 0;
+}
+.forecast-answer {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 14px;
+  border: 1px solid #36546a;
+  border-radius: 6px;
+  background: #102331;
+}
+.forecast-answer strong {
+  font-size: 18px;
+  color: var(--lime);
+  line-height: 1.35;
 }
 .readout-lead {
   padding: 22px 10px 12px;

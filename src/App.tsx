@@ -3,6 +3,7 @@ import {
   defaultProviders,
   type ForecastBrief,
   type ForecastMode,
+  type ForecastQuestionType,
   type ForecastResult,
   type ProviderConfig,
   type ProviderId,
@@ -19,6 +20,7 @@ const providerMeta: Record<ProviderId, { mark: string; tone: string }> = {
 };
 const initialBrief: ForecastBrief = {
   question: "Will the Federal Reserve cut rates before December 2026?",
+  questionType: "binary",
   deadline: "Dec 31, 2026",
   resolutionCriteria:
     "Resolve Yes if the Federal Reserve announces and implements at least one reduction to its target federal funds rate before the deadline.",
@@ -424,7 +426,31 @@ function App() {
                 />
                 <div className="brief-grid">
                   <label>
-                    <span className="section-label">Resolution deadline</span>
+                    <span className="section-label">Forecast type</span>
+                    <select
+                      aria-label="Forecast type"
+                      value={brief.questionType || "binary"}
+                      onChange={(event) =>
+                        updateBrief(
+                          "questionType",
+                          event.target.value as ForecastQuestionType,
+                        )
+                      }
+                    >
+                      <option value="binary">Yes / No event</option>
+                      <option value="timing">When / date window</option>
+                      <option value="numeric">How much / numeric range</option>
+                      <option value="categorical">
+                        Which outcome / scenario
+                      </option>
+                    </select>
+                  </label>
+                  <label>
+                    <span className="section-label">
+                      {brief.questionType === "timing"
+                        ? "Forecast horizon"
+                        : "Resolution deadline"}
+                    </span>
                     <input
                       aria-label="Resolution deadline"
                       maxLength={120}
@@ -432,7 +458,11 @@ function App() {
                       onChange={(event) =>
                         updateBrief("deadline", event.target.value)
                       }
-                      placeholder="e.g. December 31, 2026"
+                      placeholder={
+                        brief.questionType === "timing"
+                          ? "e.g. December 31, 2028"
+                          : "e.g. December 31, 2026"
+                      }
                     />
                   </label>
                   <label>
@@ -449,7 +479,11 @@ function App() {
                       onChange={(event) =>
                         updateBrief("resolutionCriteria", event.target.value)
                       }
-                      placeholder="What specifically counts as Yes or No?"
+                      placeholder={
+                        brief.questionType === "timing"
+                          ? "What event marks the end, and what date range should count?"
+                          : "What specifically counts as Yes or No?"
+                      }
                     />
                   </label>
                 </div>
@@ -579,7 +613,11 @@ function ResultView({
       </div>
       <div className="result-top">
         <div className="probability-block">
-          <span className="section-label">Aggregate probability</span>
+          <span className="section-label">
+            {result.questionType === "binary"
+              ? "Aggregate probability"
+              : "Confidence in central forecast"}
+          </span>
           <div className="big-probability">{result.probability}%</div>
           <div className="probability-bar">
             <i style={rangeStyle} />
@@ -592,6 +630,12 @@ function ResultView({
             <span>100</span>
           </div>
           <p className="probability-summary">{result.summary}</p>
+          {result.questionType !== "binary" && (
+            <div className="forecast-answer">
+              <span className="section-label">Most likely answer</span>
+              <strong>{result.answer}</strong>
+            </div>
+          )}
         </div>
         <div className="opinions">
           <span className="section-label">Provider opinions</span>
@@ -1437,6 +1481,8 @@ function demoResult(): ForecastResult {
   return {
     probability: 68,
     confidence: "Medium",
+    questionType: "binary",
+    answer: "Yes",
     confidenceRange: [54, 80],
     summary:
       "68% aggregate likelihood before the selected deadline. Demo mode keeps the workflow usable while you configure live providers.",

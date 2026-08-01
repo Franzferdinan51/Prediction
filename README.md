@@ -1,6 +1,6 @@
 # Signal / Forecast
 
-Signal / Forecast is a standalone web application for structured forecasting of binary future events. It turns a question such as “Will event X happen before date Y?” into a calibrated probability, confidence range, provider opinions, supporting signals, and disconfirming evidence.
+Signal / Forecast is a standalone web application for structured future-event forecasting. It handles binary events, timing questions such as “When will event X end?”, numeric ranges, and competing scenarios—returning a central answer, calibrated confidence, provider opinions, supporting signals, and disconfirming evidence.
 
 The project was separated from the prediction workflow in [AI-Bot-Council-Concensus](https://github.com/Franzferdinan51/AI-Bot-Council-Concensus). It is designed to run locally first, while exposing a small HTTP API that external agents and automation can call when needed.
 
@@ -8,7 +8,8 @@ The project was separated from the prediction workflow in [AI-Bot-Council-Concen
 
 ## What it includes
 
-- Binary event forecasting with a visible 0–100% likelihood.
+- Binary, timing/date-window, numeric-range, and categorical-scenario forecasts.
+- A visible central answer (for example, a likely end window) plus calibrated confidence for non-binary questions.
 - Ensemble forecasting across LM Studio, MiniMax, Grok/xAI, and OpenAI.
 - Single-provider mode for focused forecasts.
 - LM Studio local MoA mode using the bundled `local-moa-advisors-mcp` adapter.
