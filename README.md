@@ -1,58 +1,401 @@
 # Signal / Forecast
 
-Standalone prediction app extracted from the prediction mode in `council-source` (the local clone of `Franzferdinan51/AI-Bot-Council-Concensus`). It is intentionally separate from the council app and has not been committed or pushed to GitHub.
+Signal / Forecast is a standalone web application for structured forecasting of binary future events. It turns a question such as “Will event X happen before date Y?” into a calibrated probability, confidence range, provider opinions, supporting signals, and disconfirming evidence.
 
-## Run locally
+The project was separated from the prediction workflow in [AI-Bot-Council-Concensus](https://github.com/Franzferdinan51/AI-Bot-Council-Concensus). It is designed to run locally first, while exposing a small HTTP API that external agents and automation can call when needed.
+
+> Forecasts are estimates, not guarantees or financial, legal, medical, or investment advice. Always record the resolution criteria and revisit forecasts as evidence changes.
+
+## What it includes
+
+- Binary event forecasting with a visible 0–100% likelihood.
+- Ensemble forecasting across LM Studio, MiniMax, Grok/xAI, and OpenAI.
+- Single-provider mode for focused forecasts.
+- LM Studio local MoA mode using the bundled `local-moa-advisors-mcp` adapter.
+- Bounded Planner → Skeptic → Aggregator orchestration for local MoA runs.
+- Automatic LM Studio discovery through its OpenAI-compatible `/models` endpoint.
+- API-key configuration for remote providers and local endpoints that require authentication.
+- Optional OpenAI OAuth redirect configuration through a separately hosted callback.
+- Persistent local forecast history with pinning and two-forecast comparison.
+- Research mode with SearXNG as the default search provider.
+- Optional Tavily and Brave Search integrations.
+- Search budgets, five-minute caching, URL deduplication, and bounded query depth.
+- OpenClaw and Hermes Agent connectors for external agent-assisted research and forecasting.
+- A local HTTP API for forecasts, research, search, connector discovery, and agent calls.
+- Demo mode so the interface can be exercised without credentials or network services.
+
+## Architecture
+
+The application has two processes:
+
+```text
+Browser UI (Vite + React)
+        |
+        | direct provider calls for local development
+        | local API calls for MoA, search, and agents
+        v
+Signal API (Node HTTP server, 127.0.0.1:8787)
+        |
+        +--> LM Studio / local-moa-advisors-mcp
+        +--> SearXNG, Tavily, or Brave Search
+        +--> OpenClaw CLI
+        +--> Hermes CLI
+```
+
+The browser stores provider configuration and forecast history in its own `localStorage`. In local development, provider API keys are sent directly from the browser to the configured OpenAI-compatible endpoint. For a hosted deployment, move provider calls behind an authenticated server-side proxy so secrets are never exposed to browser JavaScript.
+
+## Requirements
+
+- Node.js 20 or newer.
+- npm.
+- A modern browser.
+- Optional: LM Studio with a loaded model.
+- Optional: a reachable SearXNG instance.
+- Optional: Tavily or Brave API credentials.
+- Optional: installed `openclaw` and/or `hermes` CLIs.
+
+## Install and run
+
+Install dependencies:
 
 ```bash
 npm install
+```
+
+Start the browser application:
+
+```bash
 npm run dev
 ```
 
-Open `http://localhost:5173`.
+Open [http://localhost:5173](http://localhost:5173).
 
-For the built-in local orchestration API, run a second process:
+For local MoA, search, connector discovery, and external agent calls, start the API in a second terminal:
 
 ```bash
 npm run dev:api
 ```
 
-It binds to `127.0.0.1:8787` by default. Set `SIGNAL_API_PORT` to change the port. The API is localhost-only by default and supports:
+The API listens on `127.0.0.1:8787` by default. If you change the port, create `.env.local` before starting Vite:
 
-If the API uses a non-default port, set `VITE_SIGNAL_API_URL` in `.env.local` before starting Vite. See [.env.example](/Users/duckets/Desktop/Prediction/.env.example).
+```bash
+VITE_SIGNAL_API_URL=http://127.0.0.1:8788
+```
 
-- `POST /api/forecast` with `{ "mode": "single" | "local-moa", "event": "...", "deadline": "..." }`.
-- `POST /api/agent/openclaw` with `{ "prompt": "...", "agentId?": "...", "sessionKey?": "..." }`.
-- `POST /api/agent/hermes` with `{ "prompt": "...", "model?": "...", "provider?": "..." }`.
-- `GET /api/connectors` for local MoA/OpenClaw/Hermes discovery.
+You can also run the API in a production-like process with:
 
-Set `SIGNAL_API_TOKEN` and send `Authorization: Bearer <token>` before exposing the API beyond localhost. Loopback browser requests remain usable for the local UI while non-loopback callers must authenticate. Request bodies are capped at 1 MiB, search is bounded/cached, and each agent connector permits one active turn per agent. The OpenClaw adapter uses `openclaw agent --json --message` without `--deliver`; Hermes uses its `-z/--oneshot` mode. Neither connector sends an external message by default.
+```bash
+npm run start:api
+```
 
-## Providers
+Build and preview the frontend:
 
-- **LM Studio**: defaults to `http://localhost:1234/v1`, uses the OpenAI-compatible `/models` endpoint for auto-connect, and does not require a key for a local server.
-- **MiniMax**: defaults to `https://api.minimax.io/v1` with `MiniMax-M2.7`.
-- **Grok (xAI)**: defaults to `https://api.x.ai/v1` with `grok-3-mini`.
-- **OpenAI**: defaults to `https://api.openai.com/v1` with `gpt-4o-mini`.
+```bash
+npm run build
+npm run preview
+```
 
-Provider keys and endpoints are stored in this browser's `localStorage`. The app calls each selected provider's OpenAI-compatible `/chat/completions` endpoint directly. Keep this browser-only approach for local use; a production deployment should proxy provider calls server-side so API keys never reach the browser.
+## Configuration
 
-OAuth is represented for OpenAI when a server callback is configured through `VITE_OPENAI_OAUTH_URL`. The current local app does not invent an OAuth flow for providers that expose API-key authentication instead. Add a server callback before enabling OAuth in a published deployment.
+Copy the example environment file when you need server integrations:
 
-Demo fallback is enabled by default so the forecast flow can be tested without credentials. Disable it in Providers to use connected providers only.
+```bash
+cp .env.example .env.local
+```
 
-The **LM Studio · local MoA** strategy calls the bundled `integrations/local-moa-advisors-mcp` adapter, which follows its bounded Planner → Skeptic → Aggregator pipeline against the already-loaded LM Studio model. It requires `npm run dev:api` and a loaded LM Studio model.
+### Server environment variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SIGNAL_API_PORT` | `8787` | Port for the local API server. |
+| `SIGNAL_API_HOST` | `127.0.0.1` | Bind address. Keep loopback for local use. |
+| `SIGNAL_API_TOKEN` | empty | Bearer token required from non-loopback callers. |
+| `SEARXNG_URL` | `http://127.0.0.1:8080` | SearXNG base URL. |
+| `TAVILY_API_KEY` | empty | Enables Tavily search. |
+| `BRAVE_SEARCH_API_KEY` | empty | Enables Brave Search. |
+| `OPENCLAW_COMMAND` | `openclaw` | Override the OpenClaw executable. |
+| `HERMES_COMMAND` | `hermes` | Override the Hermes executable. |
+| `LOCAL_MOA_COMMAND` | bundled adapter | Override the local MoA MCP entrypoint. |
+| `LM_STUDIO_URL` | `http://127.0.0.1:1234/v1` | LM Studio URL passed to the bundled adapter. |
+
+### Browser environment variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `VITE_SIGNAL_API_URL` | `http://127.0.0.1:8787` | API base URL used by the browser. |
+| `VITE_OPENAI_OAUTH_URL` | empty | Optional OAuth start/callback URL supplied by a separate server. |
+
+Vite exposes `VITE_*` values to the browser. Do not put private API keys in a `VITE_*` variable.
+
+## Provider setup
+
+Open the **Providers** view in the app. Each provider has an editable endpoint, model, and API-key field.
+
+Default configurations:
+
+| Provider | Endpoint | Model | Authentication |
+| --- | --- | --- | --- |
+| LM Studio | `http://localhost:1234/v1` | `local-model` | Usually none; auto-connect uses `/models`. |
+| MiniMax | `https://api.minimax.io/v1` | `MiniMax-M2.7` | API key. |
+| Grok / xAI | `https://api.x.ai/v1` | `grok-3-mini` | API key. |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` | API key or configured OAuth redirect. |
+
+The provider adapters use the OpenAI-compatible `/chat/completions` contract. Prompts ask providers to return `<probability>`, `<confidence>`, and `<reasoning>` tags. The app clamps parsed probabilities to 0–100 and keeps each provider opinion visible in the result.
+
+### Demo mode
+
+Demo fallback is enabled on first launch. It returns deterministic sample opinions so the UI, history, pinning, and comparison features can be tested without credentials. Disable **Demo fallback** in Providers before running live forecasts.
+
+## Forecast modes
+
+### Ensemble
+
+Queries the configured provider set and aggregates their opinions. This is the default council-style workflow.
+
+### Single provider
+
+Runs one selected provider. Use this when you want to compare a provider against the ensemble or isolate a provider’s reasoning.
+
+### LM Studio local MoA
+
+Runs the bundled [`local-moa-advisors-mcp`](./integrations/local-moa-advisors-mcp) adapter through MCP stdio. The adapter uses the loaded LM Studio model in a bounded sequence:
+
+1. Planner proposes a base-rate forecast and research plan.
+2. Skeptic challenges assumptions and identifies disconfirming signals.
+3. Aggregator produces the final probability and reasoning.
+
+The local MoA route requires the API process and a loaded LM Studio model. It can attach bounded SearXNG research context before the MoA run.
 
 ## Search and research
 
-SearXNG is the default search provider. Set `SEARXNG_URL` to a local or private SearXNG instance; it uses the instance's JSON `/search?q=...&format=json` API. Tavily and Brave are available when `TAVILY_API_KEY` or `BRAVE_SEARCH_API_KEY` is configured. The app never fans out to all providers automatically.
+SearXNG is the default provider because it can be self-hosted and does not require a commercial API key. Configure it with `SEARXNG_URL`.
 
-`POST /api/search` accepts `provider`, `query` or `queries`, `depth: "quick" | "deep"`, and `maxResults`. Quick mode allows up to 3 queries; deep mode allows up to 6. Results are cached for five minutes, deduplicated by URL, and capped at 10 results per query. `POST /api/research` creates three focused queries for an event: the event itself, macro factors, and latest news.
+Tavily and Brave are optional alternatives. The app only calls the provider selected by the user; it does not automatically fan out to every provider.
 
-## Verification
+Search controls:
+
+- `quick` depth: up to 3 focused queries.
+- `deep` depth: up to 6 focused queries.
+- Maximum 10 results per query.
+- Five-minute in-memory cache.
+- URL deduplication across queries.
+- Search errors are returned alongside successful results.
+
+Research mode generates three event-focused queries:
+
+1. The event itself.
+2. The event’s macro factors.
+3. The event’s latest news.
+
+This gives connected agents useful context without allowing an unbounded search loop.
+
+## Hermes Agent and OpenClaw connectors
+
+The **Agents** view checks whether the local MoA adapter, OpenClaw, and Hermes are available. Agent actions first gather bounded SearXNG research context, then pass that context into the selected connector.
+
+### OpenClaw
+
+The API invokes:
+
+```text
+openclaw agent --json --message "..."
+```
+
+Optional request fields add `--agent <id>` and `--session-key <key>`. The connector deliberately does not add `--deliver`, so a forecast request does not send a message to an external channel by default.
+
+### Hermes
+
+The API invokes Hermes in one-shot mode:
+
+```text
+hermes -z "..."
+```
+
+Optional request fields add `--model <model>` and `--provider <provider>`.
+
+Each connector allows one active turn per agent process. This prevents accidental concurrent runs from flooding a local agent or its downstream tools. Set `OPENCLAW_COMMAND` or `HERMES_COMMAND` when the executable is not on `PATH`.
+
+## HTTP API
+
+All API responses are JSON. The server returns CORS headers for local browser use. If `SIGNAL_API_TOKEN` is set, loopback requests remain available to the local UI; non-loopback callers must send:
+
+```http
+Authorization: Bearer <token>
+```
+
+### Health
+
+```bash
+curl http://127.0.0.1:8787/api/health
+```
+
+### Connector discovery
+
+```bash
+curl http://127.0.0.1:8787/api/connectors
+```
+
+The response reports whether the bundled MoA adapter, OpenClaw CLI, and Hermes CLI are available.
+
+### Forecast
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/forecast \
+  -H 'content-type: application/json' \
+  -d '{
+    "mode": "single",
+    "event": "Will inflation be below 3% before December 2026?",
+    "deadline": "December 31, 2026",
+    "provider": {
+      "id": "lmstudio",
+      "name": "LM Studio",
+      "endpoint": "http://127.0.0.1:1234/v1",
+      "model": "local-model"
+    }
+  }'
+```
+
+For a local MoA forecast, use `"mode": "local-moa"`. Set `"search": false` to skip the research pre-pass. Set `"demo": true` to receive the deterministic demo result.
+
+### Search
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/search \
+  -H 'content-type: application/json' \
+  -d '{
+    "provider": "searxng",
+    "query": "Federal Reserve rate cut macro factors",
+    "depth": "deep",
+    "maxResults": 5
+  }'
+```
+
+The response includes `results`, any per-query `errors`, and a `budget` object showing query limits and usage.
+
+### Research bundle
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/research \
+  -H 'content-type: application/json' \
+  -d '{"event":"Will the Federal Reserve cut rates before December 2026?"}'
+```
+
+### External agent calls
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/agent/openclaw \
+  -H 'content-type: application/json' \
+  -d '{"prompt":"Assess this forecast and list disconfirming signals."}'
+
+curl -X POST http://127.0.0.1:8787/api/agent/hermes \
+  -H 'content-type: application/json' \
+  -d '{"prompt":"Assess this forecast and list disconfirming signals."}'
+```
+
+## Security and operational limits
+
+- Bind the API to `127.0.0.1` unless you intentionally operate it behind a trusted network boundary.
+- Set `SIGNAL_API_TOKEN` for non-loopback access.
+- Never commit `.env.local`, provider keys, or OAuth client secrets.
+- Request bodies are limited to 1 MiB.
+- Search queries and result counts are bounded and cached.
+- Agent subprocesses have a maximum output buffer and one active turn per agent.
+- OpenClaw connector calls do not deliver messages by default.
+- Browser `localStorage` is convenient for local use but is not a production secrets vault.
+- For deployment, use server-side provider calls, HTTPS, authenticated users, encrypted secret storage, and an allowlist for callable agents.
+
+## Testing and verification
+
+Run the production type check and build:
 
 ```bash
 npm run build
 ```
 
-The end-to-end browser check covers editing the event, running the demo forecast, opening provider settings, saving a local provider configuration, and desktop/mobile rendering.
+Check production dependencies:
+
+```bash
+npm audit --omit=dev --audit-level=high
+```
+
+The verified end-to-end coverage includes:
+
+- Demo forecast execution.
+- Provider settings and local persistence.
+- Forecast history, loading, pinning, and comparison.
+- Agents view and bounded search flow.
+- API health and connector discovery.
+- OpenClaw and Hermes connector argument contracts using harmless local stubs.
+- Request-size rejection and token-aware local API behavior.
+- Production browser rendering with Playwright.
+
+## Project layout
+
+```text
+.
+├── api-server.mjs                         # Local orchestration/search/agent API
+├── src/
+│   ├── App.tsx                            # Main UI and views
+│   ├── lib/forecast.ts                     # Provider and forecast logic
+│   ├── main.tsx                            # React entrypoint
+│   └── styles.css                          # Application styling
+├── integrations/local-moa-advisors-mcp/   # Bundled MCP adapter
+├── .env.example                            # Configuration template
+├── index.html
+├── package.json
+└── vite.config.ts
+```
+
+## Troubleshooting
+
+### The app says the API is unavailable
+
+Start `npm run dev:api` and confirm `VITE_SIGNAL_API_URL` matches its port. Check the health endpoint:
+
+```bash
+curl http://127.0.0.1:8787/api/health
+```
+
+### LM Studio cannot be detected
+
+Start LM Studio’s local server, load a model, confirm the endpoint is reachable, and use **Auto-connect** in Providers. The default endpoint is `http://localhost:1234/v1`.
+
+### Search returns errors
+
+Confirm SearXNG is running at `SEARXNG_URL` and supports JSON output. For a local default setup, the expected endpoint is:
+
+```text
+http://127.0.0.1:8080/search?q=your-query&format=json
+```
+
+Tavily and Brave require their corresponding server environment variables.
+
+### OpenClaw or Hermes is shown as unavailable
+
+Run the CLI’s version command directly, then set an absolute executable path if necessary:
+
+```bash
+openclaw --version
+hermes --version
+```
+
+```bash
+OPENCLAW_COMMAND=/absolute/path/to/openclaw \
+HERMES_COMMAND=/absolute/path/to/hermes \
+npm run dev:api
+```
+
+### A live provider rejects the request
+
+Check the endpoint, model name, API key, and provider-specific account permissions. The app expects an OpenAI-compatible `/chat/completions` endpoint and a response containing a probability or a `<probability>` tag.
+
+## License and related projects
+
+This application is maintained as a separate project from the source council application. The bundled `local-moa-advisors-mcp` integration retains its upstream license and attribution in its own directory.
+
+Related projects:
+
+- [AI-Bot-Council-Concensus](https://github.com/Franzferdinan51/AI-Bot-Council-Concensus)
+- [local-moa-advisors-mcp](https://github.com/Franzferdinan51/local-moa-advisors-mcp)
+- [Hermes Agent](https://github.com/nousresearch/hermes-agent)
+- [OpenClaw](https://github.com/openclaw/openclaw)
