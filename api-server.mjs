@@ -587,7 +587,20 @@ async function cliModels(provider) {
   if (!Object.hasOwn(cliCommands, provider))
     throw Object.assign(new Error("Unknown CLI provider."), { status: 404 });
   if (provider === "minimax") return ["MiniMax-M3", "MiniMax-M2.7"];
-  if (provider === "openai") return ["codex-default"];
+  if (provider === "openai")
+    return [
+      "codex-default",
+      "gpt-5.2",
+      "gpt-5.1",
+      "gpt-5",
+      "gpt-5-mini",
+      "gpt-5-nano",
+      "gpt-4.1",
+      "gpt-4.1-mini",
+      "gpt-4.1-nano",
+      "o3",
+      "o4-mini",
+    ];
   try {
     const result = await execFileAsync(cliCommands.grok, ["models"], {
       timeout: 10000,

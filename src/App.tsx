@@ -811,6 +811,15 @@ function ProviderSettings({
                       : "Use an API key above, or connect through the provider's local OAuth CLI."}
                 </p>
               )}
+              {provider.id === "openai" &&
+                provider.authMode === "cli-oauth" && (
+                  <p className="oauth-note">
+                    The OAuth dropdown includes the full supported text and
+                    reasoning catalog. Codex verifies plan-specific access when
+                    the forecast runs; use an API key and <b>Test API key</b>
+                    for the exact account-enabled API list.
+                  </p>
+                )}
               {providerIssues[provider.id] && (
                 <p className="connection-error" role="alert">
                   {providerIssues[provider.id]}
